@@ -1026,18 +1026,24 @@ $('syncBtn').addEventListener('click', async () => {
   const btn = $('syncBtn');
   btn.disabled = true;
   btn.textContent = 'Sincronizando...';
-  // TODO: invocar Edge Function que consume Xubio (test_xubio.py muestra el patrón).
-  // Por ahora dejamos registro del intento en sync_log y recargamos.
-  await sb.from('sync_log').insert({
-    user_id: currentUser.id,
-    resource: 'manual_trigger',
-    status: 'success',
-    items_synced: 0,
-    finished_at: new Date().toISOString(),
-  });
-  await loadAllFromDb();
-  btn.textContent = '✓ Sincronizado';
-  setTimeout(() => { btn.textContent = 'Sincronizar Xubio'; btn.disabled = false; }, 1500);
+  try {
+    const { data, error } = await sb.functions.invoke('sync-xubio', { method: 'POST' });
+    if (error) throw error;
+    await loadAllFromDb();
+    if (data?.ok) {
+      const total = (data.results || []).reduce((s, r) => s + (r.items_synced || 0), 0);
+      btn.textContent = `✓ ${total} items`;
+    } else {
+      const failed = (data?.results || []).filter(r => r.status === 'error').map(r => r.resource).join(', ');
+      btn.textContent = `⚠ Errores: ${failed || 'ver consola'}`;
+      console.warn('sync-xubio results', data);
+    }
+  } catch (e) {
+    console.error('sync-xubio failed', e);
+    btn.textContent = '✗ Falló — ver consola';
+  } finally {
+    setTimeout(() => { btn.textContent = 'Sincronizar Xubio'; btn.disabled = false; }, 2500);
+  }
 });
 
 $('seedBtn').addEventListener('click', seedDb);

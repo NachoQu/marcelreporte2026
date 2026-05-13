@@ -37,8 +37,30 @@ CLIENT_ID=xxx CLIENT_SECRET=yyy python3 test_xubio.py
 
 Email + contraseña vía Supabase Auth. La primera vez, "Crear cuenta" → confirmar email → ingresar.
 
+## Sincronización Xubio (Edge Function)
+
+La function `sync-xubio` (en `supabase/functions/sync-xubio/`) lee las credenciales de
+Xubio desde **secrets del proyecto Supabase** (no de la BD). Hay que setearlas una vez:
+
+```bash
+# desde la carpeta del repo, con la Supabase CLI logueada al proyecto
+supabase secrets set XUBIO_CLIENT_ID=tu_client_id XUBIO_CLIENT_SECRET=tu_client_secret \
+  --project-ref pvycxqgwkvlroxasvxqv
+```
+
+Alternativa: setearlas desde el Dashboard de Supabase → **Edge Functions → sync-xubio →
+Secrets**.
+
+La function:
+- Obtiene un token con `Authorization: Basic` (el patrón A validado en `test_xubio.py`).
+- Hace upsert de clientes (`/clienteBean`) y proveedores (`/proveedorBean`) por
+  `(user_id, xubio_id)`.
+- Loguea cada resource en `sync_log`.
+
+El botón **"Sincronizar Xubio"** del frontend la invoca con `sb.functions.invoke()`.
+
 ## Próximos pasos
 
-- Edge Function para `Sincronizar Xubio` (hoy es un placeholder que sólo loguea en `sync_log`).
-- Pull de clientes/proveedores desde Xubio → tablas `clientes` / `proveedores`.
-- Pull de CxC / CxP / cheques desde Xubio con upsert por `xubio_id`.
+- Confirmar endpoints Xubio para facturas (CxC/CxP) y cheques, y agregar `syncResource(...)`
+  en la function.
+- Deploy a Vercel (estático).
