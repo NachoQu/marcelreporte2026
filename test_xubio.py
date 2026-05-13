@@ -20,6 +20,10 @@ TEST_ENDPOINTS = [
     "/ProveedorBean",
     "/comprobanteVentaBean",
     "/comprobanteCompraBean",
+    "/cuenta",
+    "/categoriaCuenta",
+    "/banco",
+    "/depositos",
 ]
 
 

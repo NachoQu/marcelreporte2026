@@ -233,9 +233,11 @@ Deno.serve(async (req: Request) => {
     return String(dateStr).slice(0, 10) >= cutoffISO;
   };
 
-  // Antes de refrescar facturas Xubio, eliminamos las filas previamente sincronizadas
-  // (las que tienen xubio_id seteado). Las filas cargadas manualmente (sin xubio_id)
-  // se preservan.
+  // Antes de refrescar Xubio, eliminamos las filas previamente sincronizadas
+  // (las que tienen xubio_id seteado). Las filas cargadas manualmente
+  // (sin xubio_id) se preservan en todas las tablas, incluyendo saldos
+  // que el usuario ya completó si vienen de cuentas xubio (los saldos
+  // se preservan por upsert con onConflict).
   for (const table of ["cuentas_por_cobrar", "cuentas_por_pagar"]) {
     const { error } = await supabase.from(table).delete().not("xubio_id", "is", null);
     if (error) {
@@ -289,6 +291,58 @@ Deno.serve(async (req: Request) => {
       email: (p.email ?? p.mail ?? null) as string | null,
       telefono: (p.telefono ?? p.tel ?? null) as string | null,
     }),
+    supabase,
+    userId: user.id,
+    logSync,
+  }));
+
+  // ===== Cuentas bancarias (auto-creadas desde el plan de cuentas Xubio) =====
+  // Xubio NO expone saldos actuales por API — sólo el plan de cuentas. Filtramos
+  // las cuentas que parezcan "disponibilidades" (caja / bancos / inversiones /
+  // wallets) por nombre y las pre-creamos con saldo 0. El usuario completa el
+  // saldo manualmente en la UI y se persiste; en sincronizaciones futuras el
+  // upsert preserva el saldo ya cargado (sólo refresca el nombre).
+  const cuentaIncludeKeywords = [
+    "caja", "banco", "efectivo", "plazo fijo", "inversion", "inversión",
+    "mercado pago", "mp ", " mp", "wallet", "virtual", "financiera", "fondo",
+  ];
+  const cuentaExcludeKeywords = [
+    "ajuste", "comisión", "comision", "gastos", "interes", "intereses",
+    "impuesto", "resultado", "ganancia", "pérdida", "perdida", "diferencia",
+  ];
+  const classifyTipo = (name: string): string => {
+    const n = name.toLowerCase();
+    if (n.includes("caja") || n.includes("efectivo")) return "caja";
+    if (n.includes("plazo fijo") || n.includes("inversion") || n.includes("fondo")) return "plazo_fijo";
+    if (n.includes("mercado pago") || n.includes("wallet") || n.includes("virtual")) return "wallet";
+    if (n.includes("banco")) {
+      if (n.includes("ahorro") || n.includes(" ca ") || n.endsWith(" ca")) return "banco_ca";
+      return "banco_cc";
+    }
+    return "otro";
+  };
+
+  results.push(await syncResource({
+    resource: "cuentas_bancarias",
+    table: "cuentas_bancarias",
+    onConflict: "user_id,xubio_id",
+    fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/cuenta"]),
+    mapper: (c, uid) => {
+      const nombre = String(c.nombre ?? c.descripcion ?? "");
+      const n = nombre.toLowerCase();
+      const ok =
+        cuentaIncludeKeywords.some((k) => n.includes(k)) &&
+        !cuentaExcludeKeywords.some((k) => n.includes(k));
+      if (!ok) return { user_id: uid, xubio_id: "" };
+
+      return {
+        user_id: uid,
+        xubio_id: String(c.id ?? c.ID ?? c.codigo ?? ""),
+        label: nombre,
+        tipo: classifyTipo(nombre),
+        // saldo NO se setea en upsert para no pisar lo que el usuario cargó.
+      };
+    },
     supabase,
     userId: user.id,
     logSync,
