@@ -15,15 +15,7 @@ TOKEN_URL = "https://xubio.com/API/1.1/TokenEndpoint"
 BASE_URL = "https://xubio.com/API/1.1"
 
 TEST_ENDPOINTS = [
-    "/miempresa",
-    "/clienteBean",
-    "/ProveedorBean",
-    "/comprobanteVentaBean",
-    "/comprobanteCompraBean",
-    "/cuenta",
-    "/categoriaCuenta",
-    "/banco",
-    "/depositos",
+    "/cobranzaBean?fechaDesde=2026-05-01&fechaHasta=2026-05-13",
 ]
 
 
@@ -128,7 +120,7 @@ def get_token(client_id: str, client_secret: str) -> Optional[str]:
     return None
 
 
-def describe(data):
+def describe(data, full=False):
     """Imprime el shape y un sample del payload."""
     if isinstance(data, list):
         print(f"  Shape: array(len={len(data)})")
@@ -136,7 +128,10 @@ def describe(data):
             first = data[0]
             if isinstance(first, dict):
                 print(f"  1er item keys: {list(first.keys())}")
-                print(f"  1er item sample: {json.dumps(first, ensure_ascii=False)[:500]}")
+                if full:
+                    print(f"  1er item completo:\n{json.dumps(first, ensure_ascii=False, indent=2)}")
+                else:
+                    print(f"  1er item sample: {json.dumps(first, ensure_ascii=False)[:500]}")
             else:
                 print(f"  1er item: {repr(first)[:200]}")
     elif isinstance(data, dict):
@@ -163,7 +158,7 @@ def test_endpoint(token: str, path: str) -> bool:
                 "Authorization": f"Bearer {token}",
                 "Accept": "application/json",
             },
-            timeout=30,
+            timeout=120,
         )
     except Exception as e:
         print(f"  ❌ {type(e).__name__}: {e}")
@@ -175,7 +170,8 @@ def test_endpoint(token: str, path: str) -> bool:
     if r.status_code == 200:
         try:
             data = r.json()
-            describe(data)
+            # Si la ruta es de cobranzas, hacemos dump completo para mapeo de cheques
+            describe(data, full="cobranzaBean" in path)
         except Exception:
             print(f"  Body (no JSON): {r.text[:500]}")
         return True

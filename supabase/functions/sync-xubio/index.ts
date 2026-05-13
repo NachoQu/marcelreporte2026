@@ -238,7 +238,7 @@ Deno.serve(async (req: Request) => {
   // (sin xubio_id) se preservan en todas las tablas, incluyendo saldos
   // que el usuario ya completó si vienen de cuentas xubio (los saldos
   // se preservan por upsert con onConflict).
-  for (const table of ["cuentas_por_cobrar", "cuentas_por_pagar"]) {
+  for (const table of ["cuentas_por_cobrar", "cuentas_por_pagar", "cheques_recibidos"]) {
     const { error } = await supabase.from(table).delete().not("xubio_id", "is", null);
     if (error) {
       await logSync({
@@ -410,9 +410,114 @@ Deno.serve(async (req: Request) => {
     logSync,
   }));
 
-  // NOTE: Xubio no expone endpoint dedicado de cheques. Vienen como medios de pago
-  // dentro de /cobranzaBean (cheques recibidos) y /pagoBean (cheques emitidos).
-  // Implementarlo requiere parsear el detalle de cada cobranza/pago — pendiente.
+  // ===== Cheques recibidos (parseados desde /cobranzaBean) =====
+  // /cobranzaBean es lento sin filtro de fecha (timeout >120s). Con ventana
+  // de fechas responde rápido. Tomamos cobranzas de los últimos 120 días y
+  // extraemos los cheques cuya cuenta contable sea "VALORES_A_DEPOSITAR".
+  // Sólo conservamos cheques con vtoCheque >= hoy - 7d (los demás se asumen
+  // depositados/cobrados).
+  try {
+    // Mapa banco_id (Xubio) → nombre
+    const bancos: Record<string, string> = {};
+    try {
+      const { raw: bancosRaw } = await fetchXubioRaw(token, "/banco");
+      for (const b of unwrapList<Record<string, unknown>>(bancosRaw)) {
+        const id = String(b.banco_id ?? b.id ?? b.ID ?? "");
+        if (id) bancos[id] = String(b.nombre ?? id);
+      }
+    } catch (_) { /* sin banco-map: el cheque queda sin nombre de banco */ }
+
+    // Mapa cliente_xubio_id → nombre (lo traemos de la BD ahora que ya está sincronizado)
+    const clientesNombre: Record<string, string> = {};
+    const { data: clientesData } = await supabase
+      .from("clientes")
+      .select("xubio_id,nombre")
+      .not("xubio_id", "is", null);
+    for (const c of clientesData || []) {
+      if (c.xubio_id) clientesNombre[String(c.xubio_id)] = String(c.nombre);
+    }
+
+    // Ventana 120 días hacia atrás (cobranzas recientes que pueden tener cheques diferidos)
+    const cobranzaDesde = new Date();
+    cobranzaDesde.setDate(cobranzaDesde.getDate() - 120);
+    const fechaDesde = cobranzaDesde.toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const { raw: cobRaw, rawText: cobText } = await fetchXubioRaw(
+      token,
+      `/cobranzaBean?fechaDesde=${fechaDesde}&fechaHasta=${today}`,
+    );
+    const cobranzas = unwrapList<Record<string, unknown>>(cobRaw);
+
+    const chequeCutoff = new Date();
+    chequeCutoff.setDate(chequeCutoff.getDate() - 7);
+    const chequeCutoffISO = chequeCutoff.toISOString().slice(0, 10);
+
+    const rows: Record<string, unknown>[] = [];
+    for (const c of cobranzas) {
+      const clienteObj = (c.cliente ?? {}) as Record<string, unknown>;
+      const clienteId = String(clienteObj.id ?? clienteObj.ID ?? "");
+      const clienteNombre = clientesNombre[clienteId] ?? null;
+      const instrumentos = (c.transaccionInstrumentoDeCobro ?? []) as Record<string, unknown>[];
+      if (!Array.isArray(instrumentos)) continue;
+
+      for (const inst of instrumentos) {
+        const cuenta = (inst.cuenta ?? {}) as Record<string, unknown>;
+        const codigo = String(cuenta.codigo ?? "");
+        const numCheque = inst.numCheque ?? inst.numeroCheque;
+        // Identificamos cheques por código de cuenta contable O por numCheque presente
+        const esCheque = codigo === "VALORES_A_DEPOSITAR" || !!numCheque;
+        if (!esCheque) continue;
+
+        const venc = String(inst.vtoCheque ?? inst.fechaVencimiento ?? "").slice(0, 10);
+        if (!venc || venc < chequeCutoffISO) continue; // ya depositado/vencido
+
+        const bancoObj = (inst.banco ?? {}) as Record<string, unknown>;
+        const bancoId = String(bancoObj.ID ?? bancoObj.id ?? "");
+        const bancoNombre = bancos[bancoId] ?? bancoId ?? null;
+
+        const xubioId = `${c.transaccionid ?? ""}_${inst.transaccionICId ?? ""}_${numCheque ?? ""}`;
+        rows.push({
+          user_id: user.id,
+          xubio_id: xubioId,
+          numero: String(numCheque ?? "S/N"),
+          cliente_nombre: clienteNombre,
+          banco: bancoNombre,
+          fecha_vencimiento: venc,
+          importe: num(inst.importe ?? inst.monto ?? 0),
+          estado: "cartera",
+        });
+      }
+    }
+
+    if (rows.length) {
+      const { error } = await supabase
+        .from("cheques_recibidos")
+        .upsert(rows, { onConflict: "user_id,xubio_id" });
+      if (error) throw new Error(error.message);
+    }
+
+    await logSync({
+      resource: "cheques_recibidos",
+      status: "success",
+      items_synced: rows.length,
+      items_failed: 0,
+      error_message: rows.length === 0
+        ? `0 cheques. Cobranzas escaneadas: ${cobranzas.length}. Sample: ${cobText.slice(0, 200)}`
+        : undefined,
+    });
+    results.push({ resource: "cheques_recibidos", status: "success", items_synced: rows.length, items_failed: 0 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await logSync({ resource: "cheques_recibidos", status: "error", items_synced: 0, items_failed: 0, error_message: msg });
+    results.push({ resource: "cheques_recibidos", status: "error", items_synced: 0, items_failed: 0, error_message: msg });
+  }
+
+  // NOTE: Cheques emitidos NO se sincronizan desde Xubio.
+  // /pagoBean tiene un bug en el backend de Xubio (devuelve 401 con stack trace
+  // Java: PagoBeanResource.getFacturaCompraBeans). Hasta que Xubio lo arregle,
+  // los cheques emitidos se cargan manualmente desde la UI ("+ Agregar cheque
+  // emitido" en la pestaña correspondiente).
 
   const ok = results.every((r) => r.status === "success");
   return json({ ok, results }, ok ? 200 : 207);

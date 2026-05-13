@@ -563,7 +563,7 @@
         <select id="m_categoria" style="background: var(--panel-2); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 4px 6px; font-size: 12px; font-family: inherit; width: 160px;"></select>
       </div>
       <div class="row"><label>Fecha</label><input id="m_date" type="date" class="amount" style="width: 160px;" /></div>
-      <div class="row"><label>Importe</label><input id="m_amount" type="number" class="amount" placeholder="0" /></div>
+      <div class="row"><label>Importe</label><input id="m_amount" type="text" inputmode="numeric" class="amount" placeholder="0" /></div>
       <button id="addManual" style="width: 100%; margin-top: 10px;">+ Agregar movimiento manual</button>
     </div>
   </aside>
@@ -696,6 +696,22 @@ const seedData = {
 
 const fmt = n => '$ ' + Math.round(n).toLocaleString('es-AR');
 const $ = id => document.getElementById(id);
+
+/* Parse de números en formato argentino: "." como separador de miles,
+   "," como decimal. Acepta ambos formatos sin romper si el usuario
+   pone sólo dígitos. */
+function parseAR(str) {
+  if (str == null || str === '') return 0;
+  const s = String(str).trim();
+  // Quitar separadores de miles (.) y normalizar coma decimal a punto.
+  const clean = s.replace(/\./g, '').replace(',', '.');
+  const n = Number(clean);
+  return Number.isFinite(n) ? n : 0;
+}
+/* Formato argentino con separador de miles. Para inputs (sin "$"). */
+function fmtNum(n) {
+  return Math.round(Number(n) || 0).toLocaleString('es-AR');
+}
 
 /* =====================================================================
    MAPPERS  ──  estado ↔ columnas de Supabase
@@ -932,7 +948,8 @@ function renderBalances() {
     row.innerHTML = `
       <input value="${b.label}" data-k="label" data-i="${i}"
              style="background: transparent; border: none; color: var(--muted); font-size: 12px; flex: 1; font-family: inherit;" />
-      <input class="amount" type="number" value="${b.amount}" data-k="amount" data-i="${i}" />
+      <input class="amount money" type="text" inputmode="numeric" value="${fmtNum(b.amount)}"
+             data-k="amount" data-i="${i}" />
       <button class="danger" data-del="${i}" style="margin-left: 6px;">×</button>
     `;
     root.appendChild(row);
@@ -942,11 +959,19 @@ function renderBalances() {
     inp.addEventListener('input', e => {
       const i = +e.target.dataset.i;
       const k = e.target.dataset.k;
-      const v = e.target.type === 'number' ? Number(e.target.value) || 0 : e.target.value;
+      const v = e.target.classList.contains('money')
+        ? parseAR(e.target.value)
+        : e.target.value;
       state.balances[i][k] = v;
       $('totalInicial').textContent = fmt(totalInicial());
       recompute();
       debouncedPersist('balances', state.balances[i]);
+    });
+    inp.addEventListener('blur', e => {
+      if (e.target.classList.contains('money')) {
+        const i = +e.target.dataset.i;
+        e.target.value = fmtNum(state.balances[i].amount);
+      }
     });
   });
   root.querySelectorAll('button[data-del]').forEach(b => {
@@ -987,7 +1012,7 @@ const tabConfigs = {
       <td><input value="${it.cliente || ''}" data-k="cliente" data-i="${i}" data-t="ar" /></td>
       <td><input type="date" value="${it.emision || ''}" data-k="emision" data-i="${i}" data-t="ar" /></td>
       <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="ar" /></td>
-      <td class="amount income"><input type="number" value="${it.importe}" data-k="importe" data-i="${i}" data-t="ar" style="text-align:right;" /></td>
+      <td class="amount income"><input type="text" inputmode="numeric" class="money" value="${fmtNum(it.importe)}" data-k="importe" data-i="${i}" data-t="ar" style="text-align:right;" /></td>
       <td><button class="danger" data-del="ar" data-i="${i}">×</button></td>
     `,
     blank: () => ({ numero: 'S/N', cliente: '', emision: '', venc: d(7), importe: 0 }),
@@ -1002,7 +1027,7 @@ const tabConfigs = {
       <td><input value="${it.cliente || ''}" data-k="cliente" data-i="${i}" data-t="cr" /></td>
       <td><input value="${it.banco || ''}" data-k="banco" data-i="${i}" data-t="cr" /></td>
       <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="cr" /></td>
-      <td class="amount income"><input type="number" value="${it.importe}" data-k="importe" data-i="${i}" data-t="cr" style="text-align:right;" /></td>
+      <td class="amount income"><input type="text" inputmode="numeric" class="money" value="${fmtNum(it.importe)}" data-k="importe" data-i="${i}" data-t="cr" style="text-align:right;" /></td>
       <td><button class="danger" data-del="cr" data-i="${i}">×</button></td>
     `,
     blank: () => ({ numero: 'CR-', cliente: '', banco: '', venc: d(7), importe: 0 }),
@@ -1016,7 +1041,7 @@ const tabConfigs = {
       <td><input value="${it.numero || ''}" data-k="numero" data-i="${i}" data-t="ap" style="width: 90px;" /></td>
       <td><input value="${it.proveedor || ''}" data-k="proveedor" data-i="${i}" data-t="ap" /></td>
       <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="ap" /></td>
-      <td class="amount expense"><input type="number" value="${it.importe}" data-k="importe" data-i="${i}" data-t="ap" style="text-align:right;" /></td>
+      <td class="amount expense"><input type="text" inputmode="numeric" class="money" value="${fmtNum(it.importe)}" data-k="importe" data-i="${i}" data-t="ap" style="text-align:right;" /></td>
       <td><button class="danger" data-del="ap" data-i="${i}">×</button></td>
     `,
     blank: () => ({ numero: 'S/N', proveedor: '', venc: d(7), importe: 0 }),
@@ -1030,7 +1055,7 @@ const tabConfigs = {
       <td><input value="${it.numero || ''}" data-k="numero" data-i="${i}" data-t="ce" style="width: 90px;" /></td>
       <td><input value="${it.proveedor || ''}" data-k="proveedor" data-i="${i}" data-t="ce" /></td>
       <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="ce" /></td>
-      <td class="amount expense"><input type="number" value="${it.importe}" data-k="importe" data-i="${i}" data-t="ce" style="text-align:right;" /></td>
+      <td class="amount expense"><input type="text" inputmode="numeric" class="money" value="${fmtNum(it.importe)}" data-k="importe" data-i="${i}" data-t="ce" style="text-align:right;" /></td>
       <td><button class="danger" data-del="ce" data-i="${i}">×</button></td>
     `,
     blank: () => ({ numero: 'CE-', proveedor: '', venc: d(7), importe: 0 }),
@@ -1052,7 +1077,7 @@ const tabConfigs = {
       </td>
       <td><span class="badge ${it.type}">${it.type === 'in' ? 'Ingreso' : 'Egreso'}</span></td>
       <td><input type="date" value="${it.date}" data-k="date" data-i="${i}" data-t="mn" /></td>
-      <td class="amount ${it.type === 'in' ? 'income' : 'expense'}"><input type="number" value="${it.amount}" data-k="amount" data-i="${i}" data-t="mn" style="text-align:right;" /></td>
+      <td class="amount ${it.type === 'in' ? 'income' : 'expense'}"><input type="text" inputmode="numeric" class="money" value="${fmtNum(it.amount)}" data-k="amount" data-i="${i}" data-t="mn" style="text-align:right;" /></td>
       <td><button class="danger" data-del="mn" data-i="${i}">×</button></td>
     `;
     },
@@ -1093,12 +1118,23 @@ function renderTab() {
 
   const onFieldChange = e => {
     const t = e.target.dataset.t, i = +e.target.dataset.i, k = e.target.dataset.k;
-    const v = e.target.type === 'number' ? Number(e.target.value) || 0 : e.target.value;
+    let v;
+    if (e.target.classList.contains('money')) v = parseAR(e.target.value);
+    else if (e.target.type === 'number') v = Number(e.target.value) || 0;
+    else v = e.target.value;
     state[t][i][k] = v;
     recompute();
     debouncedPersist(t, state[t][i]);
   };
-  root.querySelectorAll('input[data-k]').forEach(inp => inp.addEventListener('input', onFieldChange));
+  root.querySelectorAll('input[data-k]').forEach(inp => {
+    inp.addEventListener('input', onFieldChange);
+    inp.addEventListener('blur', e => {
+      if (e.target.classList.contains('money')) {
+        const t = e.target.dataset.t, i = +e.target.dataset.i, k = e.target.dataset.k;
+        e.target.value = fmtNum(state[t][i][k]);
+      }
+    });
+  });
   root.querySelectorAll('select[data-k]').forEach(sel => sel.addEventListener('change', onFieldChange));
 
   root.querySelectorAll('button[data-del]').forEach(b => {
@@ -1497,7 +1533,7 @@ $('addManual').addEventListener('click', async () => {
   const type = $('m_type').value;
   const categoria = $('m_categoria').value || null;
   const date = $('m_date').value;
-  const amount = Number($('m_amount').value) || 0;
+  const amount = parseAR($('m_amount').value);
   if (!desc || !date || !amount) {
     alert('Completá concepto, fecha e importe.');
     return;
