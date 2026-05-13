@@ -1,8 +1,13 @@
 // Edge Function: sync-xubio
-// Pull de catálogos (clientes/proveedores) desde la API de Xubio y upsert en Supabase.
+// Pull de datos desde la API de Xubio y upsert en Supabase.
+// READ-ONLY por diseño: esta function NUNCA escribe en Xubio.
+//   - Único método permitido contra xubio.com: GET (ver xubioGet más abajo).
+//   - No hay rutas a POST/PUT/DELETE/PATCH de Xubio.
+//   - Si en el futuro hace falta escribir algo, crear OTRA function explícitamente
+//     y revisarla aparte.
 // Credenciales: secrets del proyecto Supabase. Nombres case-sensitive:
 //   Client_id, Secret_id, Token_URL (opcional, usa default si falta).
-// Auth: requiere JWT del usuario que invoca; se respeta RLS al escribir.
+// Auth: requiere JWT del usuario que invoca; se respeta RLS al escribir en Supabase.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -18,6 +23,8 @@ interface SyncResult {
   error_message?: string;
 }
 
+// OAuth2 token exchange. El POST es contra el TokenEndpoint (estándar OAuth);
+// NO modifica datos en Xubio — sólo intercambia credenciales por un access_token.
 async function getXubioToken(tokenUrl: string, clientId: string, clientSecret: string): Promise<string> {
   const basic = btoa(`${clientId}:${clientSecret}`);
   const res = await fetch(tokenUrl, {
@@ -39,8 +46,11 @@ async function getXubioToken(tokenUrl: string, clientId: string, clientSecret: s
   return data.access_token as string;
 }
 
+// READ-ONLY: este helper hardcodea method=GET y es el único punto que toca la API
+// de Xubio. NO agregar method como parámetro ni un equivalente xubioPost/Put/Delete.
 async function fetchXubioRaw(token: string, path: string): Promise<{ raw: unknown; rawText: string }> {
   const res = await fetch(BASE_URL + path, {
+    method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
