@@ -10,3 +10,5 @@ venv/
 node_modules/
 .vercel
 .claude/
+.agents/
+skills-lock.json
