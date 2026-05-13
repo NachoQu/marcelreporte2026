@@ -1,12 +1,13 @@
 // Edge Function: sync-xubio
 // Pull de catálogos (clientes/proveedores) desde la API de Xubio y upsert en Supabase.
-// Las credenciales viven como secrets de la function (XUBIO_CLIENT_ID / XUBIO_CLIENT_SECRET).
+// Credenciales: secrets del proyecto Supabase. Nombres case-sensitive:
+//   Client_id, Secret_id, Token_URL (opcional, usa default si falta).
 // Auth: requiere JWT del usuario que invoca; se respeta RLS al escribir.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const TOKEN_URL = "https://xubio.com/API/1.1/TokenEndpoint";
+const DEFAULT_TOKEN_URL = "https://xubio.com/API/1.1/TokenEndpoint";
 const BASE_URL = "https://xubio.com/API/1.1";
 
 interface SyncResult {
@@ -17,9 +18,9 @@ interface SyncResult {
   error_message?: string;
 }
 
-async function getXubioToken(clientId: string, clientSecret: string): Promise<string> {
+async function getXubioToken(tokenUrl: string, clientId: string, clientSecret: string): Promise<string> {
   const basic = btoa(`${clientId}:${clientSecret}`);
-  const res = await fetch(TOKEN_URL, {
+  const res = await fetch(tokenUrl, {
     method: "POST",
     headers: {
       Authorization: `Basic ${basic}`,
@@ -71,14 +72,16 @@ Deno.serve(async (req: Request) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const xubioClientId = Deno.env.get("XUBIO_CLIENT_ID");
-  const xubioClientSecret = Deno.env.get("XUBIO_CLIENT_SECRET");
+  // Nombres de secrets case-sensitive, tal como están seteados en el proyecto.
+  const xubioClientId = Deno.env.get("Client_id");
+  const xubioClientSecret = Deno.env.get("Secret_id");
+  const xubioTokenUrl = Deno.env.get("Token_URL") || DEFAULT_TOKEN_URL;
 
   if (!supabaseUrl || !supabaseAnonKey) {
     return json({ error: "supabase env missing" }, 500);
   }
   if (!xubioClientId || !xubioClientSecret) {
-    return json({ error: "XUBIO_CLIENT_ID / XUBIO_CLIENT_SECRET not configured" }, 500);
+    return json({ error: "Client_id / Secret_id not configured" }, 500);
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -110,7 +113,7 @@ Deno.serve(async (req: Request) => {
 
   let token: string;
   try {
-    token = await getXubioToken(xubioClientId, xubioClientSecret);
+    token = await getXubioToken(xubioTokenUrl, xubioClientId, xubioClientSecret);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await logSync({ resource: "xubio_token", status: "error", items_synced: 0, items_failed: 0, error_message: msg });
