@@ -869,6 +869,48 @@ function fmtNum(n) {
   return Math.round(Number(n) || 0).toLocaleString('es-AR');
 }
 
+/* Formateo live mientras se tipea: re-formatea el input y restaura el cursor.
+   Devuelve el valor numérico parseado. Maneja signo negativo. */
+function liveFormatMoney(input) {
+  const raw = input.value;
+  const cursorPos = input.selectionStart ?? raw.length;
+
+  // Detectar signo negativo (sólo al inicio)
+  const isNeg = raw.trimStart().startsWith('-');
+
+  // Contar cuántos dígitos había ANTES del cursor (para reposicionarlo después)
+  const digitsBeforeCursor = raw.slice(0, cursorPos).replace(/\D/g, '').length;
+
+  // Extraer sólo los dígitos
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) {
+    input.value = isNeg && raw === '-' ? '-' : '';
+    return 0;
+  }
+
+  // Formatear con separadores de miles AR
+  const num = (isNeg ? -1 : 1) * Number(digits);
+  const formatted = num.toLocaleString('es-AR');
+  input.value = formatted;
+
+  // Restaurar la posición del cursor: contar dígitos hasta encontrar la misma cantidad
+  let newCursor = formatted.length;
+  let count = 0;
+  for (let i = 0; i < formatted.length; i++) {
+    if (/\d/.test(formatted[i])) count++;
+    if (count >= digitsBeforeCursor) {
+      newCursor = i + 1;
+      break;
+    }
+  }
+  // Ajuste si el signo negativo está al inicio
+  if (isNeg && newCursor === 0) newCursor = 1;
+
+  try { input.setSelectionRange(newCursor, newCursor); } catch (_) {}
+
+  return num;
+}
+
 /* =====================================================================
    MAPPERS  ──  estado ↔ columnas de Supabase
    ===================================================================== */
@@ -1116,18 +1158,12 @@ function renderBalances() {
       const i = +e.target.dataset.i;
       const k = e.target.dataset.k;
       const v = e.target.classList.contains('money')
-        ? parseAR(e.target.value)
+        ? liveFormatMoney(e.target)
         : e.target.value;
       state.balances[i][k] = v;
       $('totalInicial').textContent = fmt(totalInicial());
       recompute();
       debouncedPersist('balances', state.balances[i]);
-    });
-    inp.addEventListener('blur', e => {
-      if (e.target.classList.contains('money')) {
-        const i = +e.target.dataset.i;
-        e.target.value = fmtNum(state.balances[i].amount);
-      }
     });
   });
   root.querySelectorAll('button[data-del]').forEach(b => {
@@ -1275,7 +1311,7 @@ function renderTab() {
   const onFieldChange = e => {
     const t = e.target.dataset.t, i = +e.target.dataset.i, k = e.target.dataset.k;
     let v;
-    if (e.target.classList.contains('money')) v = parseAR(e.target.value);
+    if (e.target.classList.contains('money')) v = liveFormatMoney(e.target);
     else if (e.target.type === 'number') v = Number(e.target.value) || 0;
     else v = e.target.value;
     state[t][i][k] = v;
@@ -1284,12 +1320,6 @@ function renderTab() {
   };
   root.querySelectorAll('input[data-k]').forEach(inp => {
     inp.addEventListener('input', onFieldChange);
-    inp.addEventListener('blur', e => {
-      if (e.target.classList.contains('money')) {
-        const t = e.target.dataset.t, i = +e.target.dataset.i, k = e.target.dataset.k;
-        e.target.value = fmtNum(state[t][i][k]);
-      }
-    });
   });
   root.querySelectorAll('select[data-k]').forEach(sel => sel.addEventListener('change', onFieldChange));
 
@@ -1741,6 +1771,9 @@ function refreshCategoriaSelect() {
 }
 
 $('m_type').addEventListener('change', refreshCategoriaSelect);
+
+// Live-formatting en el input de importe manual también
+$('m_amount').addEventListener('input', e => liveFormatMoney(e.target));
 
 $('addManual').addEventListener('click', async () => {
   const desc = $('m_desc').value.trim();
