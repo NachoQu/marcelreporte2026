@@ -164,42 +164,114 @@ Deno.serve(async (req: Request) => {
     telefono: x.telefono ?? x.tel ?? null,
   });
 
-  // ===== Clientes =====
+  // Una factura Xubio puede traer la contraparte como objeto anidado o como
+  // campos planos. Devolvemos {id, nombre} cubriendo ambos casos.
+  const extractParty = (
+    x: Record<string, unknown>,
+    keys: { obj: string; idFlat: string; nameFlat: string },
+  ): { id: string | null; nombre: string | null } => {
+    const obj = x[keys.obj];
+    if (obj && typeof obj === "object") {
+      const o = obj as Record<string, unknown>;
+      return {
+        id: o.id != null ? String(o.id) : null,
+        nombre: (o.nombre ?? o.razonSocial ?? o.descripcion ?? null) as string | null,
+      };
+    }
+    return {
+      id: x[keys.idFlat] != null ? String(x[keys.idFlat]) : null,
+      nombre: (x[keys.nameFlat] ?? null) as string | null,
+    };
+  };
+
+  const num = (v: unknown): number => {
+    const n = typeof v === "number" ? v : v != null ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // ===== Clientes (catálogo) =====
   results.push(await syncResource({
     resource: "clientes",
     table: "clientes",
     onConflict: "user_id,xubio_id",
-    fetcher: () => fetchXubioTry<Record<string, unknown>>(token, [
-      "/clienteBean",
-      "/clientesBean",
-      "/cliente",
-    ]),
+    fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/clienteBean"]),
     mapper: terceroMapper,
     supabase,
     userId: user.id,
     logSync,
   }));
 
-  // ===== Proveedores =====
+  // ===== Proveedores (catálogo). Doc oficial Xubio: /ProveedorBean (P mayúscula) =====
   results.push(await syncResource({
     resource: "proveedores",
     table: "proveedores",
     onConflict: "user_id,xubio_id",
-    fetcher: () => fetchXubioTry<Record<string, unknown>>(token, [
-      "/proveedorBean",
-      "/proveedoresBean",
-      "/proveedor",
-      "/Proveedor",
-    ]),
+    fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/ProveedorBean"]),
     mapper: terceroMapper,
     supabase,
     userId: user.id,
     logSync,
   }));
 
-  // TODO: facturas pendientes (CxC/CxP) y cheques. Confirmar endpoints con Marcel
-  // antes de implementar (Xubio usa nombres como /facturaCobrarBean / /chequeBean,
-  // pero varían por instancia / módulos contratados).
+  // ===== Cuentas por cobrar (facturas de venta) =====
+  // Filtramos las que tengan saldo pendiente > 0 si Xubio expone ese campo;
+  // si no, traemos todo y dejamos al usuario marcar el estado.
+  results.push(await syncResource({
+    resource: "cuentas_por_cobrar",
+    table: "cuentas_por_cobrar",
+    onConflict: "user_id,xubio_id",
+    fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/comprobanteVentaBean"]),
+    mapper: (f, uid) => {
+      const cliente = extractParty(f, { obj: "cliente", idFlat: "clienteId", nameFlat: "clienteNombre" });
+      const total = num(f.total ?? f.importe ?? f.monto ?? f.importeTotal);
+      const saldoPend = f.saldo != null ? num(f.saldo) : (f.saldoPendiente != null ? num(f.saldoPendiente) : total);
+      return {
+        user_id: uid,
+        xubio_id: String(f.id ?? ""),
+        numero_factura: String(f.numero ?? f.numeroComprobante ?? f.numeroFactura ?? "S/N"),
+        cliente_nombre: cliente.nombre,
+        fecha_emision: (f.fecha ?? f.fechaEmision ?? null) as string | null,
+        fecha_vencimiento: (f.fechaVencimiento ?? f.vencimiento ?? f.fecha ?? null) as string | null,
+        importe: total,
+        importe_cobrado: Math.max(0, total - saldoPend),
+        estado: saldoPend <= 0 ? "cobrada" : (saldoPend < total ? "parcial" : "pendiente"),
+      };
+    },
+    supabase,
+    userId: user.id,
+    logSync,
+  }));
+
+  // ===== Cuentas por pagar (facturas de compra) =====
+  results.push(await syncResource({
+    resource: "cuentas_por_pagar",
+    table: "cuentas_por_pagar",
+    onConflict: "user_id,xubio_id",
+    fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/comprobanteCompraBean"]),
+    mapper: (f, uid) => {
+      const prov = extractParty(f, { obj: "proveedor", idFlat: "proveedorId", nameFlat: "proveedorNombre" });
+      const total = num(f.total ?? f.importe ?? f.monto ?? f.importeTotal);
+      const saldoPend = f.saldo != null ? num(f.saldo) : (f.saldoPendiente != null ? num(f.saldoPendiente) : total);
+      return {
+        user_id: uid,
+        xubio_id: String(f.id ?? ""),
+        numero_factura: String(f.numero ?? f.numeroComprobante ?? f.numeroFactura ?? "S/N"),
+        proveedor_nombre: prov.nombre,
+        fecha_emision: (f.fecha ?? f.fechaEmision ?? null) as string | null,
+        fecha_vencimiento: (f.fechaVencimiento ?? f.vencimiento ?? f.fecha ?? null) as string | null,
+        importe: total,
+        importe_pagado: Math.max(0, total - saldoPend),
+        estado: saldoPend <= 0 ? "pagada" : (saldoPend < total ? "parcial" : "pendiente"),
+      };
+    },
+    supabase,
+    userId: user.id,
+    logSync,
+  }));
+
+  // NOTE: Xubio no expone endpoint dedicado de cheques. Vienen como medios de pago
+  // dentro de /cobranzaBean (cheques recibidos) y /pagoBean (cheques emitidos).
+  // Implementarlo requiere parsear el detalle de cada cobranza/pago — pendiente.
 
   const ok = results.every((r) => r.status === "success");
   return json({ ok, results }, ok ? 200 : 207);
