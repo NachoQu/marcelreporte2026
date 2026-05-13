@@ -305,6 +305,9 @@
           <option value="in">Ingreso</option>
         </select>
       </div>
+      <div class="row"><label>Categoría</label>
+        <select id="m_categoria" style="background: var(--panel-2); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 4px 6px; font-size: 12px; font-family: inherit; width: 160px;"></select>
+      </div>
       <div class="row"><label>Fecha</label><input id="m_date" type="date" class="amount" style="width: 160px;" /></div>
       <div class="row"><label>Importe</label><input id="m_amount" type="number" class="amount" placeholder="0" /></div>
       <button id="addManual" style="width: 100%; margin-top: 10px;">+ Agregar movimiento manual</button>
@@ -369,6 +372,25 @@ const state = {
   ui: { tab: 'ar', bucket: 'week', endDate: d(60) },
 };
 
+/* Categorías estándar para movimientos manuales (alineadas con el Excel de referencia).
+   Las opciones dependen del tipo (ingreso vs egreso). */
+const CATEGORIAS_MANUALES = {
+  in: ['Ingresos Futuros', 'Otros ingresos'],
+  out: [
+    'Sueldos Banco',
+    'Sueldos Efectivo',
+    'Sindicatos',
+    'Sueldos AFIP',
+    'Impuestos',
+    'Planes AFIP',
+    'Préstamos',
+    'Proveedores Fijos',
+    'Cheques Financieros',
+    'Otros egresos',
+  ],
+};
+const ALL_CATEGORIAS = [...CATEGORIAS_MANUALES.in, ...CATEGORIAS_MANUALES.out];
+
 /* Datos de ejemplo: se insertan en la BD del usuario si pide "Datos de ejemplo" */
 const seedData = {
   balances: [
@@ -405,11 +427,11 @@ const seedData = {
     { numero: 'CE-5503', proveedor: 'Proveedor Insumos SA', venc: d(30), importe: 1100000 },
   ],
   mn: [
-    { desc: 'Sueldos quincena',          type: 'out', date: d(3),  amount: 2400000 },
-    { desc: 'AFIP — IVA',                type: 'out', date: d(18), amount: 850000 },
-    { desc: 'Cuota préstamo Galicia',    type: 'out', date: d(10), amount: 320000 },
-    { desc: 'Sindicato — aporte mensual',type: 'out', date: d(20), amount: 180000 },
-    { desc: 'Sueldos fin de mes',        type: 'out', date: d(18), amount: 2400000 },
+    { desc: 'Sueldos quincena',          type: 'out', categoria: 'Sueldos Banco',    date: d(3),  amount: 2400000 },
+    { desc: 'AFIP — IVA',                type: 'out', categoria: 'Impuestos',         date: d(18), amount: 850000 },
+    { desc: 'Cuota préstamo Galicia',    type: 'out', categoria: 'Préstamos',         date: d(10), amount: 320000 },
+    { desc: 'Sindicato — aporte mensual',type: 'out', categoria: 'Sindicatos',        date: d(20), amount: 180000 },
+    { desc: 'Sueldos fin de mes',        type: 'out', categoria: 'Sueldos Banco',    date: d(18), amount: 2400000 },
   ],
 };
 
@@ -452,8 +474,8 @@ const mappers = {
   },
   mn: {
     table: 'movimientos_manuales',
-    fromDb: r => ({ id: r.id, desc: r.descripcion, type: r.tipo, date: r.fecha, amount: Number(r.importe) }),
-    toDb:   r => ({ descripcion: r.desc, tipo: r.type, fecha: r.date, importe: r.amount }),
+    fromDb: r => ({ id: r.id, desc: r.descripcion, type: r.tipo, categoria: r.categoria || '', date: r.fecha, amount: Number(r.importe) }),
+    toDb:   r => ({ descripcion: r.desc, tipo: r.type, categoria: r.categoria || null, fecha: r.date, importe: r.amount }),
   },
 };
 
@@ -714,6 +736,8 @@ const tabConfigs = {
       <td><button class="danger" data-del="ar" data-i="${i}">×</button></td>
     `,
     blank: () => ({ numero: 'S/N', cliente: '', emision: '', venc: d(7), importe: 0 }),
+    canAdd: true,
+    addLabel: '+ Agregar cuenta por cobrar',
   },
   cr: {
     title: 'Cheques recibidos en cartera',
@@ -727,6 +751,8 @@ const tabConfigs = {
       <td><button class="danger" data-del="cr" data-i="${i}">×</button></td>
     `,
     blank: () => ({ numero: 'CR-', cliente: '', banco: '', venc: d(7), importe: 0 }),
+    canAdd: true,
+    addLabel: '+ Agregar cheque recibido',
   },
   ap: {
     title: 'Cuentas por pagar (facturas de compra pendientes)',
@@ -739,6 +765,8 @@ const tabConfigs = {
       <td><button class="danger" data-del="ap" data-i="${i}">×</button></td>
     `,
     blank: () => ({ numero: 'S/N', proveedor: '', venc: d(7), importe: 0 }),
+    canAdd: true,
+    addLabel: '+ Agregar cuenta por pagar',
   },
   ce: {
     title: 'Cheques emitidos pendientes de débito',
@@ -751,18 +779,31 @@ const tabConfigs = {
       <td><button class="danger" data-del="ce" data-i="${i}">×</button></td>
     `,
     blank: () => ({ numero: 'CE-', proveedor: '', venc: d(7), importe: 0 }),
+    canAdd: true,
+    addLabel: '+ Agregar cheque emitido',
   },
   mn: {
     title: 'Movimientos manuales (sueldos, impuestos, préstamos, etc.)',
-    cols: ['Concepto', 'Tipo', 'Fecha', 'Importe', ''],
-    rowHTML: (it, i) => `
+    cols: ['Concepto', 'Categoría', 'Tipo', 'Fecha', 'Importe', ''],
+    rowHTML: (it, i) => {
+      const opts = CATEGORIAS_MANUALES[it.type || 'out'] || [];
+      return `
       <td><input value="${it.desc || ''}" data-k="desc" data-i="${i}" data-t="mn" /></td>
+      <td>
+        <select data-k="categoria" data-i="${i}" data-t="mn">
+          <option value=""${!it.categoria ? ' selected' : ''}>—</option>
+          ${opts.map(c => `<option value="${c}"${c === it.categoria ? ' selected' : ''}>${c}</option>`).join('')}
+        </select>
+      </td>
       <td><span class="badge ${it.type}">${it.type === 'in' ? 'Ingreso' : 'Egreso'}</span></td>
       <td><input type="date" value="${it.date}" data-k="date" data-i="${i}" data-t="mn" /></td>
       <td class="amount ${it.type === 'in' ? 'income' : 'expense'}"><input type="number" value="${it.amount}" data-k="amount" data-i="${i}" data-t="mn" style="text-align:right;" /></td>
       <td><button class="danger" data-del="mn" data-i="${i}">×</button></td>
-    `,
-    blank: () => ({ desc: '', type: 'out', date: d(7), amount: 0 }),
+    `;
+    },
+    blank: () => ({ desc: '', type: 'out', categoria: 'Otros egresos', date: d(7), amount: 0 }),
+    canAdd: true,
+    addLabel: '+ Agregar movimiento manual',
   },
 };
 
@@ -772,31 +813,38 @@ function renderTab() {
   const data = state[tab];
   const root = $('tabContent');
 
+  const addBtn = cfg.canAdd
+    ? `<button id="tabAdd" class="ghost" style="margin-top: 14px;">${cfg.addLabel}</button>`
+    : '';
+
   if (!data.length) {
-    root.innerHTML = `<div class="empty">Sin registros para mostrar.</div>`;
-    return;
+    root.innerHTML = `
+      <div class="empty">Sin registros para mostrar.</div>
+      ${addBtn}
+    `;
+  } else {
+    const head = cfg.cols.map(c => `<th>${c}</th>`).join('');
+    const body = data.map((it, i) => `<tr>${cfg.rowHTML(it, i)}</tr>`).join('');
+    root.innerHTML = `
+      <div style="font-size: 12px; color: var(--muted); margin-bottom: 10px;">${cfg.title} — ${data.length} registro(s)</div>
+      <table>
+        <thead><tr>${head}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+      ${addBtn}
+    `;
   }
 
-  const head = cfg.cols.map(c => `<th>${c}</th>`).join('');
-  const body = data.map((it, i) => `<tr>${cfg.rowHTML(it, i)}</tr>`).join('');
+  const onFieldChange = e => {
+    const t = e.target.dataset.t, i = +e.target.dataset.i, k = e.target.dataset.k;
+    const v = e.target.type === 'number' ? Number(e.target.value) || 0 : e.target.value;
+    state[t][i][k] = v;
+    recompute();
+    debouncedPersist(t, state[t][i]);
+  };
+  root.querySelectorAll('input[data-k]').forEach(inp => inp.addEventListener('input', onFieldChange));
+  root.querySelectorAll('select[data-k]').forEach(sel => sel.addEventListener('change', onFieldChange));
 
-  root.innerHTML = `
-    <div style="font-size: 12px; color: var(--muted); margin-bottom: 10px;">${cfg.title} — ${data.length} registro(s)</div>
-    <table>
-      <thead><tr>${head}</tr></thead>
-      <tbody>${body}</tbody>
-    </table>
-  `;
-
-  root.querySelectorAll('input').forEach(inp => {
-    inp.addEventListener('input', e => {
-      const t = e.target.dataset.t, i = +e.target.dataset.i, k = e.target.dataset.k;
-      const v = e.target.type === 'number' ? Number(e.target.value) || 0 : e.target.value;
-      state[t][i][k] = v;
-      recompute();
-      debouncedPersist(t, state[t][i]);
-    });
-  });
   root.querySelectorAll('button[data-del]').forEach(b => {
     b.addEventListener('click', async (e) => {
       const t = e.target.dataset.del, i = +e.target.dataset.i;
@@ -806,6 +854,18 @@ function renderTab() {
       recompute();
     });
   });
+
+  if (cfg.canAdd) {
+    const addEl = $('tabAdd');
+    if (addEl) addEl.addEventListener('click', async () => {
+      const blank = cfg.blank();
+      state[tab].push(blank);
+      renderTab();
+      recompute();
+      await persistRow(tab, blank);
+      renderTab();
+    });
+  }
 }
 
 /* =====================================================================
@@ -1004,16 +1064,28 @@ $('endDate').addEventListener('change', e => {
 
 $('addBalance').addEventListener('click', addBalance);
 
+function refreshCategoriaSelect() {
+  const tipo = $('m_type').value;
+  const sel = $('m_categoria');
+  const prev = sel.value;
+  const opts = CATEGORIAS_MANUALES[tipo] || [];
+  sel.innerHTML = opts.map(c => `<option value="${c}">${c}</option>`).join('');
+  if (opts.includes(prev)) sel.value = prev;
+}
+
+$('m_type').addEventListener('change', refreshCategoriaSelect);
+
 $('addManual').addEventListener('click', async () => {
   const desc = $('m_desc').value.trim();
   const type = $('m_type').value;
+  const categoria = $('m_categoria').value || null;
   const date = $('m_date').value;
   const amount = Number($('m_amount').value) || 0;
   if (!desc || !date || !amount) {
     alert('Completá concepto, fecha e importe.');
     return;
   }
-  const row = { desc, type, date, amount };
+  const row = { desc, type, categoria, date, amount };
   state.mn.push(row);
   $('m_desc').value = ''; $('m_amount').value = '';
   document.querySelector('.tab[data-tab="mn"]').click();
@@ -1060,6 +1132,7 @@ $('authEmail').addEventListener('keydown', e => { if (e.key === 'Enter') $('auth
 
 $('endDate').value = state.ui.endDate;
 $('m_date').value = d(7);
+refreshCategoriaSelect();
 initAuth();
 </script>
 

@@ -222,6 +222,33 @@ Deno.serve(async (req: Request) => {
     return Number.isFinite(n) ? n : 0;
   };
 
+  // Ventana de fechas: sólo facturas con vencimiento >= hoy - 14 días.
+  // Las más antiguas se asumen ya cobradas/pagadas (Xubio devuelve todas las
+  // facturas sin distinguir pendientes; sin /cobranzaBean no podemos saberlo).
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - 14);
+  const cutoffISO = cutoffDate.toISOString().slice(0, 10);
+  const isPendingDate = (dateStr: string | null | undefined): boolean => {
+    if (!dateStr) return false;
+    return String(dateStr).slice(0, 10) >= cutoffISO;
+  };
+
+  // Antes de refrescar facturas Xubio, eliminamos las filas previamente sincronizadas
+  // (las que tienen xubio_id seteado). Las filas cargadas manualmente (sin xubio_id)
+  // se preservan.
+  for (const table of ["cuentas_por_cobrar", "cuentas_por_pagar"]) {
+    const { error } = await supabase.from(table).delete().not("xubio_id", "is", null);
+    if (error) {
+      await logSync({
+        resource: `${table}_cleanup`,
+        status: "error",
+        items_synced: 0,
+        items_failed: 0,
+        error_message: error.message,
+      });
+    }
+  }
+
   // Extrae nombre de una entidad anidada (cliente / proveedor / moneda / etc).
   const partyName = (x: unknown): string | null => {
     if (!x || typeof x !== "object") return null;
@@ -268,8 +295,8 @@ Deno.serve(async (req: Request) => {
   }));
 
   // ===== Cuentas por cobrar (facturas de venta) =====
-  // Xubio no expone "saldo pendiente" en el comprobante. Asumimos pendiente
-  // por default; cruzar con /cobranzaBean queda para iteración futura.
+  // Filtramos a vencimiento >= hoy - 14d (las anteriores se asumen cobradas).
+  // Xubio no expone "saldo pendiente"; cruzar con /cobranzaBean es la mejora pendiente.
   results.push(await syncResource({
     resource: "cuentas_por_cobrar",
     table: "cuentas_por_cobrar",
@@ -277,13 +304,17 @@ Deno.serve(async (req: Request) => {
     fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/comprobanteVentaBean"]),
     mapper: (f, uid) => {
       const total = num(f.importetotal ?? f.importeTotal ?? f.total ?? f.importeMonPrincipal);
+      const venc = (f.fechaVto ?? f.fecha ?? null) as string | null;
+      if (!isPendingDate(venc)) {
+        return { user_id: uid, xubio_id: "" }; // se filtra por falta de xubio_id
+      }
       return {
         user_id: uid,
         xubio_id: String(f.transaccionid ?? f.id ?? ""),
         numero_factura: String(f.numeroDocumento ?? f.numero ?? "S/N"),
         cliente_nombre: partyName(f.cliente),
         fecha_emision: (f.fecha ?? null) as string | null,
-        fecha_vencimiento: (f.fechaVto ?? f.fecha ?? null) as string | null,
+        fecha_vencimiento: venc,
         importe: total,
         importe_cobrado: 0,
         estado: "pendiente",
@@ -296,6 +327,7 @@ Deno.serve(async (req: Request) => {
 
   // ===== Cuentas por pagar (facturas de compra) =====
   // Las compras no tienen fechaVto — usamos fechaComprobante / fechaFiscal / fecha.
+  // Mismo filtro de ventana temporal.
   results.push(await syncResource({
     resource: "cuentas_por_pagar",
     table: "cuentas_por_pagar",
@@ -303,13 +335,17 @@ Deno.serve(async (req: Request) => {
     fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/comprobanteCompraBean"]),
     mapper: (f, uid) => {
       const total = num(f.importetotal ?? f.importeTotal ?? f.total ?? f.importeMonPrincipal);
+      const venc = (f.fechaComprobante ?? f.fechaFiscal ?? f.fecha ?? null) as string | null;
+      if (!isPendingDate(venc)) {
+        return { user_id: uid, xubio_id: "" };
+      }
       return {
         user_id: uid,
         xubio_id: String(f.transaccionid ?? f.id ?? ""),
         numero_factura: String(f.numeroDocumento ?? f.numero ?? "S/N"),
         proveedor_nombre: partyName(f.proveedor),
         fecha_emision: (f.fecha ?? f.fechaComprobante ?? null) as string | null,
-        fecha_vencimiento: (f.fechaComprobante ?? f.fechaFiscal ?? f.fecha ?? null) as string | null,
+        fecha_vencimiento: venc,
         importe: total,
         importe_pagado: 0,
         estado: "pendiente",
