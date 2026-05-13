@@ -433,15 +433,171 @@
   }
   table.pivot tr.totals.acumulado td.neg { color: var(--red); }
 
+  .pivot-toolbar {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
   .pivot-legend {
-    display: flex; gap: 18px; flex-wrap: wrap;
+    display: flex; gap: 16px; flex-wrap: wrap;
     font-size: 11px; color: var(--muted);
-    margin-bottom: 12px;
   }
   .pivot-legend .swatch {
     display: inline-block; width: 10px; height: 10px;
     margin-right: 6px; vertical-align: middle;
     border-radius: 2px;
+  }
+  .pivot-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    margin-left: auto;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .pivot-toggle:hover { color: var(--text); border-color: var(--border-strong); }
+  .pivot-toggle input { accent-color: var(--accent); cursor: pointer; }
+
+  .pivot-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .pivot-summary-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+  }
+  .pivot-summary-card .lbl {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .pivot-summary-card .val {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .pivot-summary-card.pos { border-color: rgba(0, 166, 80, 0.4); }
+  .pivot-summary-card.pos .val { color: var(--green); }
+  .pivot-summary-card.neg { border-color: rgba(230, 57, 70, 0.4); }
+  .pivot-summary-card.neg .val { color: var(--red); }
+  .pivot-summary-card .val.pos { color: var(--green); }
+  .pivot-summary-card .val.neg { color: var(--red); }
+
+  /* Disponibilidades en la pivote: borde naranja como sección de inicio */
+  table.pivot tr.section-disponib td:first-child,
+  table.pivot tr.section-disponib th:first-child {
+    color: var(--accent-2);
+    border-left: 3px solid var(--accent-2);
+  }
+
+  /* ============================================================
+     RESPONSIVE: tablet (768–1023) y mobile (<768)
+     ============================================================ */
+  @media (max-width: 1199px) {
+    .layout { grid-template-columns: 280px 1fr; gap: 16px; padding: 16px 20px; }
+    header { padding: 18px 20px; }
+    .totals-bar { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  @media (max-width: 900px) {
+    /* Tablet vertical: una sola columna, sidebar arriba */
+    .layout {
+      grid-template-columns: 1fr;
+      padding: 14px 16px;
+      gap: 14px;
+    }
+    aside { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    aside .panel { margin-top: 0 !important; }
+    .pivot-summary { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  @media (max-width: 720px) {
+    /* Mobile: stack everything */
+    header {
+      padding: 14px 16px;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 14px;
+    }
+    .brand { gap: 12px; }
+    .brand img { height: 40px; }
+    header h1 { font-size: 18px; }
+    header .sub { font-size: 10px; }
+    .controls {
+      width: 100%;
+      gap: 6px;
+    }
+    .controls select, .controls input[type=date] {
+      flex: 1;
+      min-width: 0;
+    }
+    .header-user {
+      width: 100%;
+      margin-left: 0;
+      padding-left: 0;
+      border-left: none;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      justify-content: space-between;
+    }
+
+    aside { grid-template-columns: 1fr; }
+
+    .totals-bar { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .totals-bar .kpi { padding: 10px 12px; }
+    .totals-bar .kpi .value { font-size: 18px; }
+
+    .chart-wrap { padding: 14px; }
+    .chart-wrap > div[style*="height: 360px"] { height: 280px !important; }
+
+    .tabs {
+      overflow-x: auto;
+      overflow-y: hidden;
+      flex-wrap: nowrap;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .tab {
+      padding: 9px 12px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .pivot-summary {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .pivot-summary-card .val { font-size: 18px; }
+
+    table.pivot th, table.pivot td { padding: 6px 8px; font-size: 10px; }
+    table.pivot tbody th, table.pivot td.row-label { min-width: 160px; }
+
+    .pivot-toolbar { gap: 10px; }
+    .pivot-toggle { margin-left: 0; }
+
+    /* Authoverlay: el modal de login también en mobile */
+    .auth-card { padding: 22px; width: 100%; }
+  }
+
+  @media (max-width: 420px) {
+    .totals-bar { grid-template-columns: 1fr; }
+    .totals-bar .kpi .value { font-size: 20px; }
   }
 
   /* === Auth overlay === */
@@ -720,8 +876,8 @@ function fmtNum(n) {
 const mappers = {
   balances: {
     table: 'cuentas_bancarias',
-    fromDb: r => ({ id: r.id, label: r.label, amount: Number(r.saldo), orden: r.orden }),
-    toDb:   r => ({ label: r.label || 'Cuenta', saldo: r.amount, orden: r.orden ?? 0 }),
+    fromDb: r => ({ id: r.id, label: r.label, amount: Number(r.saldo), orden: r.orden, tipo: r.tipo }),
+    toDb:   r => ({ label: r.label || 'Cuenta', saldo: r.amount, orden: r.orden ?? 0, tipo: r.tipo || 'otro' }),
   },
   ar: {
     table: 'cuentas_por_cobrar',
@@ -1351,14 +1507,17 @@ function recompute() {
    VISTA PIVOTE (estilo Excel: categorías × semanas)
    ===================================================================== */
 
+// Estado UI específico de la pivote (toggle de filas vacías).
+state.ui.pivotShowEmpty = state.ui.pivotShowEmpty ?? false;
+
 function renderPivot() {
   const root = $('tabContent');
   const bucket = state.ui.bucket;
   const end = state.ui.endDate;
+  const showEmpty = state.ui.pivotShowEmpty;
 
   const allMovs = collectMovements().filter(m => m.date && m.date <= end);
 
-  // Buckets ordenados
   const keysSet = new Set();
   allMovs.forEach(m => keysSet.add(bucketKey(m.date, bucket)));
   const keys = [...keysSet].sort();
@@ -1371,8 +1530,28 @@ function renderPivot() {
   const todayISO = today.toISOString().slice(0, 10);
   const todayKey = bucketKey(todayISO, bucket);
 
-  // Definición de filas: orden inspirado en la planilla de referencia.
+  // Disponibilidades agrupadas por tipo (caja / banco / plazo_fijo / wallet / otro)
+  // para mostrar saldo inicial desglosado, como hace el Excel de referencia.
+  const tipoLabel = {
+    caja: 'Caja / Efectivo',
+    banco_cc: 'Bancos (cuenta corriente)',
+    banco_ca: 'Bancos (caja de ahorro)',
+    plazo_fijo: 'Plazos fijos / Inversiones',
+    wallet: 'Wallets / Mercado Pago',
+    otro: 'Otras disponibilidades',
+  };
+  const saldoPorTipo = {};
+  state.balances.forEach(b => {
+    const t = b.tipo || 'otro';
+    saldoPorTipo[t] = (saldoPorTipo[t] || 0) + (Number(b.amount) || 0);
+  });
+
   const rows = [
+    { type: 'section', label: 'DISPONIBILIDADES (saldo al inicio)' },
+    ...Object.entries(saldoPorTipo)
+      .filter(([_, v]) => v !== 0 || showEmpty)
+      .map(([tipo, val]) => ({ type: 'static', label: tipoLabel[tipo] || tipo, cls: 'section-disponib', value: val })),
+
     { type: 'section', label: 'INGRESOS' },
     { type: 'data', label: 'Cuentas por cobrar',  cls: 'section-cobros', match: m => m.dir === 'in'  && m.source === 'CxC' },
     { type: 'data', label: 'Cheques en cartera',  cls: 'section-cobros', match: m => m.dir === 'in'  && m.source === 'Cheque' },
@@ -1395,14 +1574,12 @@ function renderPivot() {
     { type: 'total', label: 'Saldo acumulado',             cls: 'totals acumulado', kind: 'acumulado' },
   ];
 
-  // Totales por bucket
   const totals = {};
   keys.forEach(k => { totals[k] = { in: 0, out: 0 }; });
   allMovs.forEach(m => {
     const k = bucketKey(m.date, bucket);
     if (totals[k]) totals[k][m.dir] += m.amount;
   });
-  // Acumulado partiendo del saldo inicial
   let acc = totalInicial();
   const accums = {};
   keys.forEach(k => {
@@ -1427,14 +1604,34 @@ function renderPivot() {
     return c.join(' ');
   };
 
+  const saldoInicial = totalInicial();
+  const saldoFinal = accums[keys[keys.length - 1]];
+
   let html = `
-    <div class="pivot-legend">
-      <span><span class="swatch" style="background: var(--accent)"></span>Cobros</span>
-      <span><span class="swatch" style="background: var(--red)"></span>Egresos</span>
-      <span><span class="swatch" style="background: var(--accent-2)"></span>Período actual</span>
-      <span style="margin-left: auto;">Saldo inicial:
-        <strong style="color: var(--text); font-family: var(--font-mono);">${fmt(totalInicial())}</strong>
-      </span>
+    <div class="pivot-toolbar">
+      <div class="pivot-legend">
+        <span><span class="swatch" style="background: var(--accent)"></span>Cobros</span>
+        <span><span class="swatch" style="background: var(--red)"></span>Egresos</span>
+        <span><span class="swatch" style="background: var(--accent-2)"></span>Período actual</span>
+      </div>
+      <label class="pivot-toggle">
+        <input type="checkbox" id="pivotShowEmpty" ${showEmpty ? 'checked' : ''} />
+        <span>Mostrar categorías vacías</span>
+      </label>
+    </div>
+    <div class="pivot-summary">
+      <div class="pivot-summary-card">
+        <div class="lbl">Saldo inicial</div>
+        <div class="val">${fmt(saldoInicial)}</div>
+      </div>
+      <div class="pivot-summary-card ${saldoFinal < 0 ? 'neg' : 'pos'}">
+        <div class="lbl">Saldo final proyectado</div>
+        <div class="val">${fmt(saldoFinal)}</div>
+      </div>
+      <div class="pivot-summary-card">
+        <div class="lbl">Variación período</div>
+        <div class="val ${saldoFinal - saldoInicial < 0 ? 'neg' : 'pos'}">${fmt(saldoFinal - saldoInicial)}</div>
+      </div>
     </div>
     <div class="pivot-wrap">
       <table class="pivot">
@@ -1456,6 +1653,16 @@ function renderPivot() {
       continue;
     }
 
+    if (row.type === 'static') {
+      // Filas estáticas (disponibilidades): el valor va sólo en la columna total.
+      html += `<tr class="${row.cls || ''}">
+        <th class="row-label">${row.label}</th>
+        ${keys.map(() => `<td class="zero">—</td>`).join('')}
+        <td class="${cellClass(row.value, false)}">${row.value === 0 ? '—' : fmt(row.value)}</td>
+      </tr>`;
+      continue;
+    }
+
     if (row.type === 'data') {
       const cells = keys.map(k => ({
         k,
@@ -1464,12 +1671,12 @@ function renderPivot() {
           .reduce((s, m) => s + m.amount, 0),
       }));
       const rowTotal = cells.reduce((s, c) => s + c.v, 0);
-      if (rowTotal === 0) continue; // ocultar categorías sin movimientos
+      if (rowTotal === 0 && !showEmpty) continue;
 
       html += `<tr class="${row.cls || ''}">
         <th class="row-label">${row.label}</th>
         ${cells.map(c => `<td class="${cellClass(c.v, c.k === todayKey)}">${c.v === 0 ? '—' : fmt(c.v)}</td>`).join('')}
-        <td class="${cellClass(rowTotal, false)}">${fmt(rowTotal)}</td>
+        <td class="${cellClass(rowTotal, false)}">${rowTotal === 0 ? '—' : fmt(rowTotal)}</td>
       </tr>`;
       continue;
     }
@@ -1490,6 +1697,13 @@ function renderPivot() {
 
   html += `</tbody></table></div>`;
   root.innerHTML = html;
+
+  // Wire toggle
+  const cb = $('pivotShowEmpty');
+  if (cb) cb.addEventListener('change', e => {
+    state.ui.pivotShowEmpty = e.target.checked;
+    renderPivot();
+  });
 }
 
 /* =====================================================================
