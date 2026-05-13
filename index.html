@@ -3,43 +3,95 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Cash Flow — Proyección Financiera</title>
+<title>Pallets Marcel — Cash Flow</title>
+<link rel="icon" type="image/png" href="assets/logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
-    --bg: #0f172a;
-    --panel: #1e293b;
-    --panel-2: #273449;
-    --border: #334155;
-    --text: #e2e8f0;
-    --muted: #94a3b8;
-    --accent: #38bdf8;
-    --green: #22c55e;
-    --green-soft: rgba(34, 197, 94, 0.18);
-    --red: #ef4444;
-    --red-soft: rgba(239, 68, 68, 0.18);
-    --yellow: #facc15;
-    --blue: #3b82f6;
+    /* Paleta Pallets Marcel: verde #00A650 + naranja #F36E22 sobre fondo oscuro
+       con sutil tinte verde para coherencia con la marca. */
+    --bg: #0c1410;
+    --panel: #131c17;
+    --panel-2: #1c2620;
+    --border: #2c3a31;
+    --border-strong: #3d4f43;
+    --text: #e9efea;
+    --muted: #8a9b91;
+    --accent: #00a650;        /* verde Pallets Marcel — primario */
+    --accent-2: #f36e22;      /* naranja Pallets Marcel — secundario */
+    --green: #00a650;
+    --green-soft: rgba(0, 166, 80, 0.16);
+    --green-glow: rgba(0, 166, 80, 0.45);
+    --red: #e63946;
+    --red-soft: rgba(230, 57, 70, 0.18);
+    --orange: #f36e22;
+    --orange-soft: rgba(243, 110, 34, 0.16);
+    --yellow: #f36e22;        /* warnings usan el naranja de marca */
+
+    --font-display: 'Bricolage Grotesque', 'DM Sans', system-ui, sans-serif;
+    --font-body: 'DM Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--font-body);
     background: var(--bg);
     color: var(--text);
     font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Sutil textura/gradiente para profundidad sin caer en flat genérico */
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0, 166, 80, 0.08), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 0%, rgba(243, 110, 34, 0.06), transparent 50%);
+    background-attachment: fixed;
   }
   header {
-    padding: 20px 28px;
+    padding: 22px 32px;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: linear-gradient(180deg, #111c33, #0f172a);
+    background: linear-gradient(180deg, rgba(0, 166, 80, 0.04), transparent 70%), var(--bg);
+    position: relative;
   }
-  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
-  header .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  header::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 6px;
+    background: linear-gradient(180deg, var(--accent-2) 0%, var(--accent-2) 35%, var(--accent) 35%, var(--accent) 100%);
+  }
+  .brand {
+    display: flex; align-items: center; gap: 16px;
+  }
+  .brand img {
+    height: 48px; width: auto;
+    background: white; border-radius: 6px; padding: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+  header h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  header h1 .accent { color: var(--accent); }
+  header .sub {
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 4px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
   .layout {
     display: grid;
     grid-template-columns: 320px 1fr;
@@ -49,16 +101,25 @@
   .panel {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
+    border-radius: 12px;
+    padding: 18px;
+    position: relative;
   }
   .panel h2 {
-    margin: 0 0 12px 0;
-    font-size: 13px;
-    font-weight: 600;
+    margin: 0 0 14px 0;
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.12em;
     color: var(--muted);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel h2::before {
+    content: '';
+    display: inline-block;
+    width: 14px; height: 2px;
+    background: var(--accent);
   }
   .panel h3 {
     margin: 14px 0 8px 0;
@@ -68,14 +129,37 @@
   .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .kpi {
     background: var(--panel-2);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border-radius: 10px;
+    padding: 14px 16px;
     border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
   }
-  .kpi .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-  .kpi .value { font-size: 18px; font-weight: 600; margin-top: 4px; }
+  .kpi .label {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+  .kpi .value {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 600;
+    margin-top: 6px;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+  }
   .kpi.positive .value { color: var(--green); }
   .kpi.negative .value { color: var(--red); }
+  .kpi.accent { border-color: rgba(0, 166, 80, 0.35); }
+  .kpi.accent::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; width: 80px; height: 80px;
+    background: radial-gradient(circle at top right, var(--green-soft), transparent 70%);
+    pointer-events: none;
+  }
   .row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--border); }
   .row:last-child { border-bottom: none; }
   .row label { color: var(--muted); font-size: 12px; }
@@ -103,32 +187,91 @@
   }
   button {
     background: var(--accent);
-    color: #0b1220;
+    color: #07140c;
     border: none;
-    padding: 7px 14px;
+    padding: 8px 16px;
     border-radius: 6px;
     font-weight: 600;
     cursor: pointer;
     font-size: 12px;
     font-family: inherit;
+    letter-spacing: 0.02em;
+    transition: transform 0.08s ease, box-shadow 0.15s ease;
+  }
+  button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px var(--green-glow);
   }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
-  button.danger { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 4px 8px; }
+  button.ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+  }
+  button.ghost:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: none;
+  }
+  button.accent-orange {
+    background: var(--accent-2);
+    color: #1a0a02;
+  }
+  button.accent-orange:hover:not(:disabled) {
+    box-shadow: 0 4px 12px rgba(243, 110, 34, 0.45);
+  }
+  button.danger {
+    background: transparent;
+    color: var(--red);
+    border: 1px solid rgba(230, 57, 70, 0.5);
+    padding: 4px 9px;
+  }
+  button.danger:hover:not(:disabled) { box-shadow: none; background: var(--red-soft); }
 
-  .chart-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
-  .chart-wrap h2 { margin: 0 0 12px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
+  .chart-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .chart-wrap h2 {
+    margin: 0 0 16px 0;
+    font-family: var(--font-display);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    font-weight: 700;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .chart-wrap h2::before {
+    content: '';
+    display: inline-block;
+    width: 14px; height: 2px;
+    background: var(--accent-2);
+  }
 
-  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+  .tabs {
+    display: flex; gap: 2px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
   .tab {
-    padding: 8px 14px;
+    padding: 10px 16px;
     cursor: pointer;
     border-bottom: 2px solid transparent;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
+    letter-spacing: 0.03em;
+    transition: color 0.15s ease;
   }
-  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
 
   table { width: 100%; border-collapse: collapse; }
   th, td {
@@ -180,10 +323,10 @@
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 12px;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
   }
-  .totals-bar .kpi { padding: 12px 14px; }
-  .totals-bar .kpi .value { font-size: 20px; }
+  .totals-bar .kpi { padding: 14px 16px; }
+  .totals-bar .kpi .value { font-size: 24px; }
   .source-tag {
     font-size: 10px;
     color: var(--muted);
@@ -191,6 +334,114 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     margin-left: 6px;
+  }
+
+  /* === Vista Pivote tipo Excel === */
+  .pivot-wrap {
+    overflow-x: auto;
+    margin-top: 4px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  table.pivot {
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    min-width: 100%;
+  }
+  table.pivot th, table.pivot td {
+    padding: 7px 10px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  table.pivot th:last-child, table.pivot td:last-child { border-right: none; }
+  table.pivot tr:last-child td { border-bottom: none; }
+  table.pivot thead th {
+    background: var(--panel-2);
+    color: var(--muted);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    position: sticky; top: 0;
+    z-index: 2;
+  }
+  table.pivot tbody th, table.pivot td.row-label {
+    text-align: left;
+    font-family: var(--font-body);
+    color: var(--text);
+    background: var(--panel);
+    position: sticky; left: 0; z-index: 1;
+    border-right: 2px solid var(--border-strong);
+    min-width: 220px;
+    font-weight: 500;
+  }
+  table.pivot thead th:first-child {
+    z-index: 3;
+    text-align: left;
+    border-right: 2px solid var(--border-strong);
+  }
+  table.pivot td.zero { color: rgba(232, 239, 234, 0.18); }
+  table.pivot td.pos { color: var(--green); }
+  table.pivot td.neg { color: var(--red); }
+  table.pivot td.col-today { background: rgba(243, 110, 34, 0.08); }
+  table.pivot thead th.col-today { background: rgba(243, 110, 34, 0.12); color: var(--accent-2); }
+
+  table.pivot tr.section-header td,
+  table.pivot tr.section-header th {
+    background: var(--bg);
+    color: var(--muted);
+    font-family: var(--font-display);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    padding-top: 14px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-strong);
+  }
+  table.pivot tr.section-cobros td:first-child,
+  table.pivot tr.section-cobros th:first-child {
+    color: var(--accent);
+    border-left: 3px solid var(--accent);
+  }
+  table.pivot tr.section-egresos td:first-child,
+  table.pivot tr.section-egresos th:first-child {
+    color: var(--red);
+    border-left: 3px solid var(--red);
+  }
+  table.pivot tr.totals td, table.pivot tr.totals th {
+    background: var(--panel-2);
+    font-weight: 600;
+    border-top: 2px solid var(--border-strong);
+  }
+  table.pivot tr.totals.posicion td,
+  table.pivot tr.totals.posicion th {
+    background: rgba(0, 166, 80, 0.08);
+    color: var(--text);
+  }
+  table.pivot tr.totals.acumulado td,
+  table.pivot tr.totals.acumulado th {
+    background: rgba(243, 110, 34, 0.10);
+    color: var(--text);
+    font-weight: 700;
+  }
+  table.pivot tr.totals.acumulado td.neg { color: var(--red); }
+
+  .pivot-legend {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    font-size: 11px; color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .pivot-legend .swatch {
+    display: inline-block; width: 10px; height: 10px;
+    margin-right: 6px; vertical-align: middle;
+    border-radius: 2px;
   }
 
   /* === Auth overlay === */
@@ -260,9 +511,12 @@
 </div>
 
 <header>
-  <div>
-    <h1>Cash Flow — Proyección Financiera</h1>
-    <div class="sub">Disponibilidad actual + cobros y pagos proyectados en línea de tiempo</div>
+  <div class="brand">
+    <img src="assets/logo.png" alt="Pallets Marcel SRL" />
+    <div>
+      <h1>Cash Flow <span class="accent">·</span> Proyección Financiera</h1>
+      <div class="sub">Pallets Marcel S.R.L. — disponibilidad, cobros y pagos en línea de tiempo</div>
+    </div>
   </div>
   <div class="controls">
     <label>Vista</label>
@@ -273,7 +527,7 @@
     </select>
     <label>Hasta</label>
     <input type="date" id="endDate" />
-    <button id="syncBtn" class="ghost" title="Importa desde la API de Xubio">Sincronizar Xubio</button>
+    <button id="syncBtn" class="accent-orange" title="Importa desde la API de Xubio">Sincronizar Xubio</button>
     <button id="seedBtn" class="ghost" title="Carga datos de ejemplo en tu cuenta">Datos de ejemplo</button>
     <span class="header-user">
       <span id="userEmail"></span>
@@ -320,7 +574,7 @@
       <div class="kpi"><div class="label">Saldo inicial</div><div id="kpiInicial" class="value">$ 0</div></div>
       <div class="kpi positive"><div class="label">Ingresos proyectados</div><div id="kpiIngresos" class="value">$ 0</div></div>
       <div class="kpi negative"><div class="label">Egresos proyectados</div><div id="kpiEgresos" class="value">$ 0</div></div>
-      <div class="kpi"><div class="label">Saldo final proyectado</div><div id="kpiFinal" class="value">$ 0</div></div>
+      <div class="kpi accent"><div class="label">Saldo final proyectado</div><div id="kpiFinal" class="value">$ 0</div></div>
     </div>
 
     <div class="chart-wrap">
@@ -331,6 +585,7 @@
 
     <div class="panel" style="margin-top: 20px;">
       <div class="tabs">
+        <div class="tab" data-tab="pivot">Vista Pivote</div>
         <div class="tab active" data-tab="ar">Cuentas por cobrar</div>
         <div class="tab" data-tab="cr">Cheques recibidos</div>
         <div class="tab" data-tab="ap">Cuentas por pagar</div>
@@ -809,6 +1064,7 @@ const tabConfigs = {
 
 function renderTab() {
   const tab = state.ui.tab;
+  if (tab === 'pivot') return renderPivot();
   const cfg = tabConfigs[tab];
   const data = state[tab];
   const root = $('tabContent');
@@ -897,7 +1153,10 @@ function collectMovements() {
   state.cr.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'in',  source: 'Cheque' }));
   state.ap.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'out', source: 'CxP' }));
   state.ce.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'out', source: 'Cheque' }));
-  state.mn.forEach(x => x.date && mv.push({ date: x.date, amount: x.amount, dir: x.type, source: 'Manual', desc: x.desc }));
+  state.mn.forEach(x => x.date && mv.push({
+    date: x.date, amount: x.amount, dir: x.type,
+    source: 'Manual', categoria: x.categoria || 'Otros', desc: x.desc,
+  }));
   return mv;
 }
 
@@ -944,16 +1203,20 @@ function renderChart(series) {
     datasets: [
       {
         type: 'bar', label: 'Ingresos', data: series.ingArr,
-        backgroundColor: 'rgba(34, 197, 94, 0.7)', borderRadius: 4, stack: 'mov', yAxisID: 'y',
+        backgroundColor: 'rgba(0, 166, 80, 0.78)',
+        borderRadius: 3, stack: 'mov', yAxisID: 'y',
       },
       {
         type: 'bar', label: 'Egresos', data: series.egrArr,
-        backgroundColor: 'rgba(239, 68, 68, 0.7)', borderRadius: 4, stack: 'mov', yAxisID: 'y',
+        backgroundColor: 'rgba(230, 57, 70, 0.78)',
+        borderRadius: 3, stack: 'mov', yAxisID: 'y',
       },
       {
         type: 'line', label: 'Saldo acumulado', data: series.accum,
-        borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.15)',
-        tension: 0.25, fill: true, pointRadius: 4, pointHoverRadius: 6,
+        borderColor: '#f36e22',
+        backgroundColor: 'rgba(243, 110, 34, 0.14)',
+        tension: 0.28, fill: true, pointRadius: 3.5, pointHoverRadius: 6,
+        pointBackgroundColor: '#f36e22', pointBorderColor: '#0c1410', pointBorderWidth: 2,
         borderWidth: 2.5, yAxisID: 'y2',
       },
     ],
@@ -961,23 +1224,31 @@ function renderChart(series) {
   const opts = {
     responsive: true, maintainAspectRatio: false,
     plugins: {
-      legend: { labels: { color: '#e2e8f0', font: { size: 12 } } },
+      legend: {
+        labels: { color: '#e9efea', font: { size: 12, family: 'DM Sans' }, usePointStyle: true, pointStyle: 'rectRounded' },
+      },
       tooltip: {
+        backgroundColor: 'rgba(28, 38, 32, 0.95)',
+        titleFont: { family: 'DM Sans', weight: '600' },
+        bodyFont: { family: 'JetBrains Mono' },
+        borderColor: 'rgba(0, 166, 80, 0.4)',
+        borderWidth: 1,
+        padding: 10,
         callbacks: { label: c => c.dataset.label + ': ' + fmt(Math.abs(c.parsed.y)) },
       },
     },
     scales: {
-      x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' }, stacked: true },
+      x: { ticks: { color: '#8a9b91', font: { family: 'DM Sans' } }, grid: { color: 'rgba(138, 155, 145, 0.06)' }, stacked: true },
       y: {
-        ticks: { color: '#94a3b8', callback: v => fmt(v) },
-        grid: { color: 'rgba(148,163,184,0.08)' },
-        title: { display: true, text: 'Movimientos por período', color: '#94a3b8' },
+        ticks: { color: '#8a9b91', callback: v => fmt(v), font: { family: 'JetBrains Mono', size: 10 } },
+        grid: { color: 'rgba(138, 155, 145, 0.06)' },
+        title: { display: true, text: 'Movimientos por período', color: '#8a9b91', font: { family: 'DM Sans', size: 11 } },
       },
       y2: {
         position: 'right',
-        ticks: { color: '#38bdf8', callback: v => fmt(v) },
+        ticks: { color: '#f36e22', callback: v => fmt(v), font: { family: 'JetBrains Mono', size: 10 } },
         grid: { drawOnChartArea: false },
-        title: { display: true, text: 'Saldo acumulado', color: '#38bdf8' },
+        title: { display: true, text: 'Saldo acumulado', color: '#f36e22', font: { family: 'DM Sans', size: 11, weight: '600' } },
       },
     },
   };
@@ -1037,6 +1308,152 @@ function recompute() {
   $('totalInicial').textContent = fmt(totalInicial());
   renderChart(series);
   renderAlerts(series);
+  if (state.ui.tab === 'pivot') renderPivot();
+}
+
+/* =====================================================================
+   VISTA PIVOTE (estilo Excel: categorías × semanas)
+   ===================================================================== */
+
+function renderPivot() {
+  const root = $('tabContent');
+  const bucket = state.ui.bucket;
+  const end = state.ui.endDate;
+
+  const allMovs = collectMovements().filter(m => m.date && m.date <= end);
+
+  // Buckets ordenados
+  const keysSet = new Set();
+  allMovs.forEach(m => keysSet.add(bucketKey(m.date, bucket)));
+  const keys = [...keysSet].sort();
+
+  if (!keys.length) {
+    root.innerHTML = `<div class="empty">Sin movimientos en el período seleccionado. Sincronizá Xubio o cargá movimientos manuales.</div>`;
+    return;
+  }
+
+  const todayISO = today.toISOString().slice(0, 10);
+  const todayKey = bucketKey(todayISO, bucket);
+
+  // Definición de filas: orden inspirado en la planilla de referencia.
+  const rows = [
+    { type: 'section', label: 'INGRESOS' },
+    { type: 'data', label: 'Cuentas por cobrar',  cls: 'section-cobros', match: m => m.dir === 'in'  && m.source === 'CxC' },
+    { type: 'data', label: 'Cheques en cartera',  cls: 'section-cobros', match: m => m.dir === 'in'  && m.source === 'Cheque' },
+    ...CATEGORIAS_MANUALES.in.map(cat => ({
+      type: 'data', label: cat, cls: 'section-cobros',
+      match: m => m.dir === 'in' && m.source === 'Manual' && (m.categoria || 'Otros') === cat,
+    })),
+    { type: 'total', label: 'Total cobros',      cls: 'totals',          kind: 'cobros' },
+
+    { type: 'section', label: 'EGRESOS' },
+    { type: 'data', label: 'Cuentas por pagar',   cls: 'section-egresos', match: m => m.dir === 'out' && m.source === 'CxP' },
+    { type: 'data', label: 'Cheques emitidos',    cls: 'section-egresos', match: m => m.dir === 'out' && m.source === 'Cheque' },
+    ...CATEGORIAS_MANUALES.out.map(cat => ({
+      type: 'data', label: cat, cls: 'section-egresos',
+      match: m => m.dir === 'out' && m.source === 'Manual' && (m.categoria || 'Otros') === cat,
+    })),
+    { type: 'total', label: 'Total compromisos', cls: 'totals',           kind: 'egresos' },
+
+    { type: 'total', label: 'Posición (cobros − egresos)', cls: 'totals posicion',  kind: 'posicion' },
+    { type: 'total', label: 'Saldo acumulado',             cls: 'totals acumulado', kind: 'acumulado' },
+  ];
+
+  // Totales por bucket
+  const totals = {};
+  keys.forEach(k => { totals[k] = { in: 0, out: 0 }; });
+  allMovs.forEach(m => {
+    const k = bucketKey(m.date, bucket);
+    if (totals[k]) totals[k][m.dir] += m.amount;
+  });
+  // Acumulado partiendo del saldo inicial
+  let acc = totalInicial();
+  const accums = {};
+  keys.forEach(k => {
+    acc += (totals[k].in - totals[k].out);
+    accums[k] = acc;
+  });
+
+  const valueFor = (row, k) => {
+    if (row.kind === 'cobros')    return totals[k].in;
+    if (row.kind === 'egresos')   return totals[k].out;
+    if (row.kind === 'posicion')  return totals[k].in - totals[k].out;
+    if (row.kind === 'acumulado') return accums[k];
+    return 0;
+  };
+
+  const cellClass = (val, isToday) => {
+    const c = [];
+    if (isToday) c.push('col-today');
+    if (val === 0) c.push('zero');
+    else if (val < 0) c.push('neg');
+    else c.push('pos');
+    return c.join(' ');
+  };
+
+  let html = `
+    <div class="pivot-legend">
+      <span><span class="swatch" style="background: var(--accent)"></span>Cobros</span>
+      <span><span class="swatch" style="background: var(--red)"></span>Egresos</span>
+      <span><span class="swatch" style="background: var(--accent-2)"></span>Período actual</span>
+      <span style="margin-left: auto;">Saldo inicial:
+        <strong style="color: var(--text); font-family: var(--font-mono);">${fmt(totalInicial())}</strong>
+      </span>
+    </div>
+    <div class="pivot-wrap">
+      <table class="pivot">
+        <thead>
+          <tr>
+            <th>Categoría</th>
+            ${keys.map(k => `<th class="${k === todayKey ? 'col-today' : ''}">${bucketLabel(k, bucket)}</th>`).join('')}
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  for (const row of rows) {
+    if (row.type === 'section') {
+      html += `<tr class="section-header"><th class="row-label">${row.label}</th>`;
+      keys.forEach(() => html += `<td></td>`);
+      html += `<td></td></tr>`;
+      continue;
+    }
+
+    if (row.type === 'data') {
+      const cells = keys.map(k => ({
+        k,
+        v: allMovs
+          .filter(m => bucketKey(m.date, bucket) === k && row.match(m))
+          .reduce((s, m) => s + m.amount, 0),
+      }));
+      const rowTotal = cells.reduce((s, c) => s + c.v, 0);
+      if (rowTotal === 0) continue; // ocultar categorías sin movimientos
+
+      html += `<tr class="${row.cls || ''}">
+        <th class="row-label">${row.label}</th>
+        ${cells.map(c => `<td class="${cellClass(c.v, c.k === todayKey)}">${c.v === 0 ? '—' : fmt(c.v)}</td>`).join('')}
+        <td class="${cellClass(rowTotal, false)}">${fmt(rowTotal)}</td>
+      </tr>`;
+      continue;
+    }
+
+    if (row.type === 'total') {
+      const cells = keys.map(k => ({ k, v: valueFor(row, k) }));
+      const rowTotal = row.kind === 'acumulado'
+        ? cells[cells.length - 1].v
+        : cells.reduce((s, c) => s + c.v, 0);
+
+      html += `<tr class="${row.cls || ''}">
+        <th class="row-label">${row.label}</th>
+        ${cells.map(c => `<td class="${cellClass(c.v, c.k === todayKey)}">${c.v === 0 ? '—' : fmt(c.v)}</td>`).join('')}
+        <td class="${cellClass(rowTotal, false)}">${rowTotal === 0 ? '—' : fmt(rowTotal)}</td>
+      </tr>`;
+    }
+  }
+
+  html += `</tbody></table></div>`;
+  root.innerHTML = html;
 }
 
 /* =====================================================================
