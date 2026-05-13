@@ -39,19 +39,40 @@ async function getXubioToken(tokenUrl: string, clientId: string, clientSecret: s
   return data.access_token as string;
 }
 
-async function fetchXubio<T = unknown>(token: string, path: string): Promise<T[]> {
+async function fetchXubioRaw(token: string, path: string): Promise<{ raw: unknown; rawText: string }> {
   const res = await fetch(BASE_URL + path, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
   });
+  const rawText = await res.text();
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Xubio GET ${path} ${res.status}: ${body.slice(0, 300)}`);
+    throw new Error(`Xubio GET ${path} ${res.status}: ${rawText.slice(0, 300)}`);
   }
-  const data = await res.json();
-  return unwrapList<T>(data);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(rawText);
+  } catch {
+    throw new Error(`Xubio GET ${path}: respuesta no es JSON (${rawText.slice(0, 200)})`);
+  }
+  return { raw, rawText };
+}
+
+async function fetchXubio<T = unknown>(token: string, path: string): Promise<T[]> {
+  const { raw } = await fetchXubioRaw(token, path);
+  return unwrapList<T>(raw);
+}
+
+function describeShape(data: unknown): string {
+  if (data === null) return "null";
+  if (data === undefined) return "undefined";
+  if (Array.isArray(data)) return `array(len=${data.length})`;
+  if (typeof data === "object") {
+    const keys = Object.keys(data as Record<string, unknown>);
+    return `object(keys=[${keys.join(", ")}])`;
+  }
+  return typeof data;
 }
 
 // Xubio a veces devuelve arrays planos, otras un objeto wrapper. Probamos formas comunes.
@@ -71,16 +92,26 @@ function unwrapList<T>(data: unknown): T[] {
 }
 
 // Prueba varias rutas y devuelve el primer match con datos (o el primer ok vacío).
-async function fetchXubioTry<T>(token: string, paths: string[]): Promise<{ items: T[]; path: string; tried: string[] }> {
+// Incluye `shape` y `sample` para diagnosticar 0-items.
+async function fetchXubioTry<T>(token: string, paths: string[]): Promise<{
+  items: T[];
+  path: string;
+  tried: string[];
+  shape: string;
+  sample: string;
+}> {
   const tried: string[] = [];
-  let firstOkEmpty: { items: T[]; path: string } | null = null;
+  let firstOkEmpty: { items: T[]; path: string; shape: string; sample: string } | null = null;
   let lastError: Error | null = null;
   for (const p of paths) {
     tried.push(p);
     try {
-      const items = await fetchXubio<T>(token, p);
-      if (items.length > 0) return { items, path: p, tried };
-      if (!firstOkEmpty) firstOkEmpty = { items, path: p };
+      const { raw, rawText } = await fetchXubioRaw(token, p);
+      const items = unwrapList<T>(raw);
+      const shape = describeShape(raw);
+      const sample = rawText.slice(0, 400);
+      if (items.length > 0) return { items, path: p, tried, shape, sample };
+      if (!firstOkEmpty) firstOkEmpty = { items, path: p, shape, sample };
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
     }
@@ -153,6 +184,22 @@ Deno.serve(async (req: Request) => {
     const msg = e instanceof Error ? e.message : String(e);
     await logSync({ resource: "xubio_token", status: "error", items_synced: 0, items_failed: 0, error_message: msg });
     return json({ error: "xubio auth failed", detail: msg }, 502);
+  }
+
+  // Diagnóstico: a qué empresa apunta este token. Si las creds están atadas a una
+  // empresa vacía, todos los GET volverán 0 items.
+  try {
+    const { raw, rawText } = await fetchXubioRaw(token, "/miempresa");
+    await logSync({
+      resource: "miempresa",
+      status: "success",
+      items_synced: 0,
+      items_failed: 0,
+      error_message: `shape=${describeShape(raw)} sample=${rawText.slice(0, 300)}`,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await logSync({ resource: "miempresa", status: "error", items_synced: 0, items_failed: 0, error_message: msg });
   }
 
   const terceroMapper = (x: Record<string, unknown>, uid: string) => ({
@@ -284,7 +331,13 @@ function json(body: unknown, status = 200) {
   });
 }
 
-interface FetchResult<T> { items: T[]; path: string; tried: string[] }
+interface FetchResult<T> {
+  items: T[];
+  path: string;
+  tried: string[];
+  shape: string;
+  sample: string;
+}
 
 interface SyncArgs {
   resource: string;
@@ -300,20 +353,29 @@ interface SyncArgs {
 async function syncResource(args: SyncArgs): Promise<SyncResult> {
   const { resource, table, onConflict, fetcher, mapper, supabase, userId, logSync } = args;
   try {
-    const { items, path, tried } = await fetcher();
+    const { items, path, tried, shape, sample } = await fetcher();
     const rows = items.map((it) => mapper(it, userId)).filter((r) => r.xubio_id);
     if (rows.length) {
       const { error } = await supabase.from(table).upsert(rows, { onConflict });
       if (error) throw new Error(error.message);
+    }
+    let error_message: string | undefined;
+    if (rows.length === 0) {
+      // 0 rows tras mapear: o vino vacío, o el mapper filtró todo por falta de id.
+      const firstItemKeys = items.length > 0 && typeof items[0] === "object"
+        ? Object.keys(items[0] as Record<string, unknown>).slice(0, 20).join(", ")
+        : "(no items)";
+      error_message =
+        `0 rows guardadas. Path: ${path} | Probados: ${tried.join(", ")} | ` +
+        `Respuesta shape: ${shape} | Items extraídos: ${items.length} | ` +
+        `Keys del 1er item: [${firstItemKeys}] | Sample: ${sample}`;
     }
     const r: SyncResult = {
       resource,
       status: "success",
       items_synced: rows.length,
       items_failed: 0,
-      error_message: rows.length === 0
-        ? `0 items. Path usado: ${path}. Probados: ${tried.join(", ")}`
-        : undefined,
+      error_message,
     };
     await logSync(r);
     return r;
