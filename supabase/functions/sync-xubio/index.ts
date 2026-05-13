@@ -202,38 +202,21 @@ Deno.serve(async (req: Request) => {
     await logSync({ resource: "miempresa", status: "error", items_synced: 0, items_failed: 0, error_message: msg });
   }
 
-  const terceroMapper = (x: Record<string, unknown>, uid: string) => ({
-    user_id: uid,
-    xubio_id: String(x.id ?? x.ID ?? x.codigo ?? x.code ?? ""),
-    nombre: String(x.nombre ?? x.razonSocial ?? x.descripcion ?? x.name ?? "Sin nombre"),
-    cuit: x.cuit ?? x.CUIT ?? x.identificacion ?? null,
-    email: x.email ?? x.mail ?? null,
-    telefono: x.telefono ?? x.tel ?? null,
-  });
-
-  // Una factura Xubio puede traer la contraparte como objeto anidado o como
-  // campos planos. Devolvemos {id, nombre} cubriendo ambos casos.
-  const extractParty = (
-    x: Record<string, unknown>,
-    keys: { obj: string; idFlat: string; nameFlat: string },
-  ): { id: string | null; nombre: string | null } => {
-    const obj = x[keys.obj];
-    if (obj && typeof obj === "object") {
-      const o = obj as Record<string, unknown>;
-      return {
-        id: o.id != null ? String(o.id) : null,
-        nombre: (o.nombre ?? o.razonSocial ?? o.descripcion ?? null) as string | null,
-      };
-    }
-    return {
-      id: x[keys.idFlat] != null ? String(x[keys.idFlat]) : null,
-      nombre: (x[keys.nameFlat] ?? null) as string | null,
-    };
-  };
+  // Nombres reales de campos verificados con test_xubio.py:
+  //   clientes:   { cliente_id, nombre }
+  //   proveedores:{ proveedorid, nombre }
+  //   facturas:   { transaccionid, numeroDocumento, fecha, fechaVto?, importetotal, cliente|proveedor }
 
   const num = (v: unknown): number => {
     const n = typeof v === "number" ? v : v != null ? Number(v) : NaN;
     return Number.isFinite(n) ? n : 0;
+  };
+
+  // Extrae nombre de una entidad anidada (cliente / proveedor / moneda / etc).
+  const partyName = (x: unknown): string | null => {
+    if (!x || typeof x !== "object") return null;
+    const o = x as Record<string, unknown>;
+    return (o.nombre ?? o.razonSocial ?? o.descripcion ?? null) as string | null;
   };
 
   // ===== Clientes (catálogo) =====
@@ -242,46 +225,58 @@ Deno.serve(async (req: Request) => {
     table: "clientes",
     onConflict: "user_id,xubio_id",
     fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/clienteBean"]),
-    mapper: terceroMapper,
+    mapper: (c, uid) => ({
+      user_id: uid,
+      xubio_id: String(c.cliente_id ?? c.id ?? c.ID ?? ""),
+      nombre: String(c.nombre ?? c.razonSocial ?? "Sin nombre"),
+      cuit: (c.cuit ?? c.CUIT ?? c.identificacion ?? null) as string | null,
+      email: (c.email ?? c.mail ?? null) as string | null,
+      telefono: (c.telefono ?? c.tel ?? null) as string | null,
+    }),
     supabase,
     userId: user.id,
     logSync,
   }));
 
-  // ===== Proveedores (catálogo). Doc oficial Xubio: /ProveedorBean (P mayúscula) =====
+  // ===== Proveedores (catálogo) =====
   results.push(await syncResource({
     resource: "proveedores",
     table: "proveedores",
     onConflict: "user_id,xubio_id",
     fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/ProveedorBean"]),
-    mapper: terceroMapper,
+    mapper: (p, uid) => ({
+      user_id: uid,
+      xubio_id: String(p.proveedorid ?? p.proveedorId ?? p.id ?? p.ID ?? ""),
+      nombre: String(p.nombre ?? p.razonSocial ?? "Sin nombre"),
+      cuit: (p.cuit ?? p.CUIT ?? p.identificacion ?? null) as string | null,
+      email: (p.email ?? p.mail ?? null) as string | null,
+      telefono: (p.telefono ?? p.tel ?? null) as string | null,
+    }),
     supabase,
     userId: user.id,
     logSync,
   }));
 
   // ===== Cuentas por cobrar (facturas de venta) =====
-  // Filtramos las que tengan saldo pendiente > 0 si Xubio expone ese campo;
-  // si no, traemos todo y dejamos al usuario marcar el estado.
+  // Xubio no expone "saldo pendiente" en el comprobante. Asumimos pendiente
+  // por default; cruzar con /cobranzaBean queda para iteración futura.
   results.push(await syncResource({
     resource: "cuentas_por_cobrar",
     table: "cuentas_por_cobrar",
     onConflict: "user_id,xubio_id",
     fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/comprobanteVentaBean"]),
     mapper: (f, uid) => {
-      const cliente = extractParty(f, { obj: "cliente", idFlat: "clienteId", nameFlat: "clienteNombre" });
-      const total = num(f.total ?? f.importe ?? f.monto ?? f.importeTotal);
-      const saldoPend = f.saldo != null ? num(f.saldo) : (f.saldoPendiente != null ? num(f.saldoPendiente) : total);
+      const total = num(f.importetotal ?? f.importeTotal ?? f.total ?? f.importeMonPrincipal);
       return {
         user_id: uid,
-        xubio_id: String(f.id ?? ""),
-        numero_factura: String(f.numero ?? f.numeroComprobante ?? f.numeroFactura ?? "S/N"),
-        cliente_nombre: cliente.nombre,
-        fecha_emision: (f.fecha ?? f.fechaEmision ?? null) as string | null,
-        fecha_vencimiento: (f.fechaVencimiento ?? f.vencimiento ?? f.fecha ?? null) as string | null,
+        xubio_id: String(f.transaccionid ?? f.id ?? ""),
+        numero_factura: String(f.numeroDocumento ?? f.numero ?? "S/N"),
+        cliente_nombre: partyName(f.cliente),
+        fecha_emision: (f.fecha ?? null) as string | null,
+        fecha_vencimiento: (f.fechaVto ?? f.fecha ?? null) as string | null,
         importe: total,
-        importe_cobrado: Math.max(0, total - saldoPend),
-        estado: saldoPend <= 0 ? "cobrada" : (saldoPend < total ? "parcial" : "pendiente"),
+        importe_cobrado: 0,
+        estado: "pendiente",
       };
     },
     supabase,
@@ -290,25 +285,24 @@ Deno.serve(async (req: Request) => {
   }));
 
   // ===== Cuentas por pagar (facturas de compra) =====
+  // Las compras no tienen fechaVto — usamos fechaComprobante / fechaFiscal / fecha.
   results.push(await syncResource({
     resource: "cuentas_por_pagar",
     table: "cuentas_por_pagar",
     onConflict: "user_id,xubio_id",
     fetcher: () => fetchXubioTry<Record<string, unknown>>(token, ["/comprobanteCompraBean"]),
     mapper: (f, uid) => {
-      const prov = extractParty(f, { obj: "proveedor", idFlat: "proveedorId", nameFlat: "proveedorNombre" });
-      const total = num(f.total ?? f.importe ?? f.monto ?? f.importeTotal);
-      const saldoPend = f.saldo != null ? num(f.saldo) : (f.saldoPendiente != null ? num(f.saldoPendiente) : total);
+      const total = num(f.importetotal ?? f.importeTotal ?? f.total ?? f.importeMonPrincipal);
       return {
         user_id: uid,
-        xubio_id: String(f.id ?? ""),
-        numero_factura: String(f.numero ?? f.numeroComprobante ?? f.numeroFactura ?? "S/N"),
-        proveedor_nombre: prov.nombre,
-        fecha_emision: (f.fecha ?? f.fechaEmision ?? null) as string | null,
-        fecha_vencimiento: (f.fechaVencimiento ?? f.vencimiento ?? f.fecha ?? null) as string | null,
+        xubio_id: String(f.transaccionid ?? f.id ?? ""),
+        numero_factura: String(f.numeroDocumento ?? f.numero ?? "S/N"),
+        proveedor_nombre: partyName(f.proveedor),
+        fecha_emision: (f.fecha ?? f.fechaComprobante ?? null) as string | null,
+        fecha_vencimiento: (f.fechaComprobante ?? f.fechaFiscal ?? f.fecha ?? null) as string | null,
         importe: total,
-        importe_pagado: Math.max(0, total - saldoPend),
-        estado: saldoPend <= 0 ? "pagada" : (saldoPend < total ? "parcial" : "pendiente"),
+        importe_pagado: 0,
+        estado: "pendiente",
       };
     },
     supabase,

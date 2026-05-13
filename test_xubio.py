@@ -15,9 +15,11 @@ TOKEN_URL = "https://xubio.com/API/1.1/TokenEndpoint"
 BASE_URL = "https://xubio.com/API/1.1"
 
 TEST_ENDPOINTS = [
+    "/miempresa",
     "/clienteBean",
-    "/productoBean",
-    "/empresaBean",
+    "/ProveedorBean",
+    "/comprobanteVentaBean",
+    "/comprobanteCompraBean",
 ]
 
 
@@ -122,6 +124,30 @@ def get_token(client_id: str, client_secret: str) -> Optional[str]:
     return None
 
 
+def describe(data):
+    """Imprime el shape y un sample del payload."""
+    if isinstance(data, list):
+        print(f"  Shape: array(len={len(data)})")
+        if data:
+            first = data[0]
+            if isinstance(first, dict):
+                print(f"  1er item keys: {list(first.keys())}")
+                print(f"  1er item sample: {json.dumps(first, ensure_ascii=False)[:500]}")
+            else:
+                print(f"  1er item: {repr(first)[:200]}")
+    elif isinstance(data, dict):
+        keys = list(data.keys())
+        print(f"  Shape: object(keys={keys})")
+        for k, v in data.items():
+            if isinstance(v, list):
+                print(f"  • {k}: array(len={len(v)})")
+                if v and isinstance(v[0], dict):
+                    print(f"    1er item keys: {list(v[0].keys())}")
+        print(f"  Sample: {json.dumps(data, ensure_ascii=False)[:500]}")
+    else:
+        print(f"  Shape: {type(data).__name__} → {repr(data)[:200]}")
+
+
 def test_endpoint(token: str, path: str) -> bool:
     url = BASE_URL + path
     print(f"\n→ GET {url}")
@@ -140,19 +166,14 @@ def test_endpoint(token: str, path: str) -> bool:
         return False
 
     dt = (time.time() - t0) * 1000
-    print(f"  Status: {r.status_code}  ({dt:.0f} ms)")
+    print(f"  Status: {r.status_code}  ({dt:.0f} ms)  Content-Type: {r.headers.get('content-type','?')}")
 
     if r.status_code == 200:
         try:
             data = r.json()
-            count = len(data) if isinstance(data, list) else "(no es lista)"
-            print(f"  ✅ Respuesta OK. Items: {count}")
-            if isinstance(data, list) and data:
-                first = data[0]
-                if isinstance(first, dict):
-                    print(f"  Primer item (keys): {list(first.keys())}")
+            describe(data)
         except Exception:
-            print(f"  Body: {r.text[:500]}")
+            print(f"  Body (no JSON): {r.text[:500]}")
         return True
     else:
         print(f"  Body: {r.text[:500]}")
@@ -171,14 +192,9 @@ def main():
     if not token:
         sys.exit(2)
 
-    banner("PASO 2 — Probando endpoint de clientes")
-    found = False
+    banner("PASO 2 — Probando todos los endpoints relevantes")
     for ep in TEST_ENDPOINTS:
-        if test_endpoint(token, ep):
-            found = True
-            break
-    if not found:
-        print("\n⚠️  Ningún endpoint de clientes funcionó.")
+        test_endpoint(token, ep)
 
     banner("FIN")
 
