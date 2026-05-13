@@ -51,7 +51,42 @@ async function fetchXubio<T = unknown>(token: string, path: string): Promise<T[]
     throw new Error(`Xubio GET ${path} ${res.status}: ${body.slice(0, 300)}`);
   }
   const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  return unwrapList<T>(data);
+}
+
+// Xubio a veces devuelve arrays planos, otras un objeto wrapper. Probamos formas comunes.
+function unwrapList<T>(data: unknown): T[] {
+  if (Array.isArray(data)) return data as T[];
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    for (const k of ["data", "items", "results", "list", "rows", "content"]) {
+      if (Array.isArray(obj[k])) return obj[k] as T[];
+    }
+    // Si todas las values son arrays con el mismo shape, devolver la primera array no vacía
+    for (const v of Object.values(obj)) {
+      if (Array.isArray(v)) return v as T[];
+    }
+  }
+  return [];
+}
+
+// Prueba varias rutas y devuelve el primer match con datos (o el primer ok vacío).
+async function fetchXubioTry<T>(token: string, paths: string[]): Promise<{ items: T[]; path: string; tried: string[] }> {
+  const tried: string[] = [];
+  let firstOkEmpty: { items: T[]; path: string } | null = null;
+  let lastError: Error | null = null;
+  for (const p of paths) {
+    tried.push(p);
+    try {
+      const items = await fetchXubio<T>(token, p);
+      if (items.length > 0) return { items, path: p, tried };
+      if (!firstOkEmpty) firstOkEmpty = { items, path: p };
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+    }
+  }
+  if (firstOkEmpty) return { ...firstOkEmpty, tried };
+  throw lastError ?? new Error(`Ningún endpoint funcionó: ${paths.join(", ")}`);
 }
 
 const CORS = {
@@ -120,20 +155,26 @@ Deno.serve(async (req: Request) => {
     return json({ error: "xubio auth failed", detail: msg }, 502);
   }
 
+  const terceroMapper = (x: Record<string, unknown>, uid: string) => ({
+    user_id: uid,
+    xubio_id: String(x.id ?? x.ID ?? x.codigo ?? x.code ?? ""),
+    nombre: String(x.nombre ?? x.razonSocial ?? x.descripcion ?? x.name ?? "Sin nombre"),
+    cuit: x.cuit ?? x.CUIT ?? x.identificacion ?? null,
+    email: x.email ?? x.mail ?? null,
+    telefono: x.telefono ?? x.tel ?? null,
+  });
+
   // ===== Clientes =====
   results.push(await syncResource({
     resource: "clientes",
     table: "clientes",
     onConflict: "user_id,xubio_id",
-    fetcher: () => fetchXubio<Record<string, unknown>>(token, "/clienteBean"),
-    mapper: (c, uid) => ({
-      user_id: uid,
-      xubio_id: String(c.id ?? c.ID ?? c.codigo ?? ""),
-      nombre: String(c.nombre ?? c.razonSocial ?? c.descripcion ?? "Sin nombre"),
-      cuit: c.cuit ?? c.CUIT ?? null,
-      email: c.email ?? null,
-      telefono: c.telefono ?? null,
-    }),
+    fetcher: () => fetchXubioTry<Record<string, unknown>>(token, [
+      "/clienteBean",
+      "/clientesBean",
+      "/cliente",
+    ]),
+    mapper: terceroMapper,
     supabase,
     userId: user.id,
     logSync,
@@ -144,15 +185,13 @@ Deno.serve(async (req: Request) => {
     resource: "proveedores",
     table: "proveedores",
     onConflict: "user_id,xubio_id",
-    fetcher: () => fetchXubio<Record<string, unknown>>(token, "/proveedorBean"),
-    mapper: (p, uid) => ({
-      user_id: uid,
-      xubio_id: String(p.id ?? p.ID ?? p.codigo ?? ""),
-      nombre: String(p.nombre ?? p.razonSocial ?? p.descripcion ?? "Sin nombre"),
-      cuit: p.cuit ?? p.CUIT ?? null,
-      email: p.email ?? null,
-      telefono: p.telefono ?? null,
-    }),
+    fetcher: () => fetchXubioTry<Record<string, unknown>>(token, [
+      "/proveedorBean",
+      "/proveedoresBean",
+      "/proveedor",
+      "/Proveedor",
+    ]),
+    mapper: terceroMapper,
     supabase,
     userId: user.id,
     logSync,
@@ -173,11 +212,13 @@ function json(body: unknown, status = 200) {
   });
 }
 
+interface FetchResult<T> { items: T[]; path: string; tried: string[] }
+
 interface SyncArgs {
   resource: string;
   table: string;
   onConflict: string;
-  fetcher: () => Promise<Record<string, unknown>[]>;
+  fetcher: () => Promise<FetchResult<Record<string, unknown>>>;
   mapper: (row: Record<string, unknown>, userId: string) => Record<string, unknown>;
   supabase: ReturnType<typeof createClient>;
   userId: string;
@@ -187,13 +228,21 @@ interface SyncArgs {
 async function syncResource(args: SyncArgs): Promise<SyncResult> {
   const { resource, table, onConflict, fetcher, mapper, supabase, userId, logSync } = args;
   try {
-    const items = await fetcher();
+    const { items, path, tried } = await fetcher();
     const rows = items.map((it) => mapper(it, userId)).filter((r) => r.xubio_id);
     if (rows.length) {
       const { error } = await supabase.from(table).upsert(rows, { onConflict });
       if (error) throw new Error(error.message);
     }
-    const r: SyncResult = { resource, status: "success", items_synced: rows.length, items_failed: 0 };
+    const r: SyncResult = {
+      resource,
+      status: "success",
+      items_synced: rows.length,
+      items_failed: 0,
+      error_message: rows.length === 0
+        ? `0 items. Path usado: ${path}. Probados: ${tried.join(", ")}`
+        : undefined,
+    };
     await logSync(r);
     return r;
   } catch (e) {
