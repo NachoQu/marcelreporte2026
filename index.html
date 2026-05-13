@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cash Flow — Proyección Financiera</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #273449;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --green: #22c55e;
+    --green-soft: rgba(34, 197, 94, 0.18);
+    --red: #ef4444;
+    --red-soft: rgba(239, 68, 68, 0.18);
+    --yellow: #facc15;
+    --blue: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  header {
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(180deg, #111c33, #0f172a);
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 20px;
+    padding: 20px 28px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .panel h2 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .panel h3 {
+    margin: 14px 0 8px 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .kpi {
+    background: var(--panel-2);
+    border-radius: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+  }
+  .kpi .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .kpi .value { font-size: 18px; font-weight: 600; margin-top: 4px; }
+  .kpi.positive .value { color: var(--green); }
+  .kpi.negative .value { color: var(--red); }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+  .row:last-child { border-bottom: none; }
+  .row label { color: var(--muted); font-size: 12px; }
+  .row input.amount {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 14px;
+    text-align: right;
+    width: 130px;
+    font-family: inherit;
+  }
+  .row input.amount:focus { outline: 1px solid var(--accent); border-radius: 4px; }
+
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .controls label { color: var(--muted); font-size: 12px; }
+  .controls select, .controls input[type=date] {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  button {
+    background: var(--accent);
+    color: #0b1220;
+    border: none;
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  button.danger { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 4px 8px; }
+
+  .chart-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .chart-wrap h2 { margin: 0 0 12px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+  .tab {
+    padding: 8px 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; }
+  td input, td select {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: inherit;
+    width: 100%;
+  }
+  td.amount { text-align: right; font-variant-numeric: tabular-nums; }
+  .income { color: var(--green); }
+  .expense { color: var(--red); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .badge.in { background: var(--green-soft); color: var(--green); }
+  .badge.out { background: var(--red-soft); color: var(--red); }
+
+  .alert {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--red);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-top: 12px;
+    font-size: 13px;
+  }
+  .alert.warn { background: rgba(250, 204, 21, 0.1); border-color: var(--yellow); }
+  .alert.ok { background: rgba(34, 197, 94, 0.1); border-color: var(--green); }
+  .alert-title { font-weight: 600; margin-bottom: 4px; }
+  .alert ul { margin: 4px 0 0 18px; padding: 0; }
+
+  .empty { color: var(--muted); padding: 20px; text-align: center; font-size: 13px; }
+
+  .totals-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .totals-bar .kpi { padding: 12px 14px; }
+  .totals-bar .kpi .value { font-size: 20px; }
+  .source-tag {
+    font-size: 10px;
+    color: var(--muted);
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-left: 6px;
+  }
+
+  /* === Auth overlay === */
+  .auth-overlay {
+    position: fixed; inset: 0;
+    background: rgba(15, 23, 42, 0.94);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+  }
+  .auth-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    width: 380px;
+    max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .auth-card h2 { margin: 0 0 4px 0; font-size: 18px; }
+  .auth-card .sub { color: var(--muted); font-size: 12px; margin-bottom: 20px; }
+  .auth-field { margin-bottom: 12px; }
+  .auth-field label {
+    display: block; font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+  }
+  .auth-field input {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 9px 11px;
+    font-size: 13px; font-family: inherit;
+  }
+  .auth-field input:focus { outline: 1px solid var(--accent); }
+  .auth-actions { display: flex; gap: 8px; margin-top: 18px; }
+  .auth-actions button { flex: 1; padding: 9px; }
+  .auth-msg { font-size: 12px; margin-top: 12px; min-height: 16px; }
+  .auth-msg.error { color: var(--red); }
+  .auth-msg.info { color: var(--accent); }
+  .header-user {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--muted); font-size: 12px;
+    margin-left: 10px; padding-left: 10px;
+    border-left: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="authOverlay" class="auth-overlay" style="display:none">
+  <div class="auth-card">
+    <h2 id="authTitle">Ingresar</h2>
+    <div class="sub" id="authSub">Accedé a tu cash flow proyectado</div>
+    <div class="auth-field">
+      <label>Email</label>
+      <input id="authEmail" type="email" autocomplete="email" />
+    </div>
+    <div class="auth-field">
+      <label>Contraseña</label>
+      <input id="authPassword" type="password" autocomplete="current-password" />
+    </div>
+    <div class="auth-actions">
+      <button id="authSubmit">Ingresar</button>
+      <button id="authToggle" class="ghost">Crear cuenta</button>
+    </div>
+    <div id="authMsg" class="auth-msg"></div>
+  </div>
+</div>
+
+<header>
+  <div>
+    <h1>Cash Flow — Proyección Financiera</h1>
+    <div class="sub">Disponibilidad actual + cobros y pagos proyectados en línea de tiempo</div>
+  </div>
+  <div class="controls">
+    <label>Vista</label>
+    <select id="bucketSel">
+      <option value="day">Diaria</option>
+      <option value="week" selected>Semanal</option>
+      <option value="month">Mensual</option>
+    </select>
+    <label>Hasta</label>
+    <input type="date" id="endDate" />
+    <button id="syncBtn" class="ghost" title="Importa desde la API de Xubio">Sincronizar Xubio</button>
+    <button id="seedBtn" class="ghost" title="Carga datos de ejemplo en tu cuenta">Datos de ejemplo</button>
+    <span class="header-user">
+      <span id="userEmail"></span>
+      <button id="logoutBtn" class="ghost" style="padding: 4px 10px">Salir</button>
+    </span>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- LEFT: Saldo inicial y entrada manual -->
+  <aside>
+    <div class="panel">
+      <h2>1. Saldo Inicial</h2>
+      <div id="balances"></div>
+      <button id="addBalance" class="ghost" style="width: 100%; margin-top: 10px;">+ Agregar cuenta</button>
+      <div class="row" style="margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px;">
+        <strong>Total disponible</strong>
+        <strong id="totalInicial" style="color: var(--accent);">$ 0</strong>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <h2>4. Carga Manual</h2>
+      <div class="row"><label>Concepto</label><input id="m_desc" class="amount" style="width: 160px;" placeholder="Sueldos, AFIP, etc." /></div>
+      <div class="row"><label>Tipo</label>
+        <select id="m_type" style="background: var(--panel-2); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 4px 6px; font-size: 12px; font-family: inherit;">
+          <option value="out">Egreso</option>
+          <option value="in">Ingreso</option>
+        </select>
+      </div>
+      <div class="row"><label>Fecha</label><input id="m_date" type="date" class="amount" style="width: 160px;" /></div>
+      <div class="row"><label>Importe</label><input id="m_amount" type="number" class="amount" placeholder="0" /></div>
+      <button id="addManual" style="width: 100%; margin-top: 10px;">+ Agregar movimiento manual</button>
+    </div>
+  </aside>
+
+  <!-- RIGHT: KPIs, gráfico y tablas -->
+  <main>
+    <div class="totals-bar">
+      <div class="kpi"><div class="label">Saldo inicial</div><div id="kpiInicial" class="value">$ 0</div></div>
+      <div class="kpi positive"><div class="label">Ingresos proyectados</div><div id="kpiIngresos" class="value">$ 0</div></div>
+      <div class="kpi negative"><div class="label">Egresos proyectados</div><div id="kpiEgresos" class="value">$ 0</div></div>
+      <div class="kpi"><div class="label">Saldo final proyectado</div><div id="kpiFinal" class="value">$ 0</div></div>
+    </div>
+
+    <div class="chart-wrap">
+      <h2>Línea de tiempo — Cash Flow</h2>
+      <div style="height: 360px;"><canvas id="cashChart"></canvas></div>
+      <div id="alerts"></div>
+    </div>
+
+    <div class="panel" style="margin-top: 20px;">
+      <div class="tabs">
+        <div class="tab active" data-tab="ar">Cuentas por cobrar</div>
+        <div class="tab" data-tab="cr">Cheques recibidos</div>
+        <div class="tab" data-tab="ap">Cuentas por pagar</div>
+        <div class="tab" data-tab="ce">Cheques emitidos</div>
+        <div class="tab" data-tab="mn">Manuales</div>
+      </div>
+      <div id="tabContent"></div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+/* =====================================================================
+   SUPABASE
+   ===================================================================== */
+
+const SUPABASE_URL = 'https://pvycxqgwkvlroxasvxqv.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_ElXhv6jzAQztkGqav3mz0g_8VvKtBGY';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+let authMode = 'signin'; // 'signin' | 'signup'
+
+/* =====================================================================
+   ESTADO
+   ===================================================================== */
+
+const today = new Date('2026-05-12');
+function d(offset) {
+  const x = new Date(today);
+  x.setDate(x.getDate() + offset);
+  return x.toISOString().slice(0, 10);
+}
+
+const state = {
+  balances: [],
+  ar: [], cr: [], ap: [], ce: [], mn: [],
+  ui: { tab: 'ar', bucket: 'week', endDate: d(60) },
+};
+
+/* Datos de ejemplo: se insertan en la BD del usuario si pide "Datos de ejemplo" */
+const seedData = {
+  balances: [
+    { label: 'Caja en efectivo', amount: 850000 },
+    { label: 'Banco Galicia CC', amount: 4200000 },
+    { label: 'Banco Santander CA', amount: 1750000 },
+    { label: 'Plazo fijo / inversiones', amount: 3000000 },
+    { label: 'Mercado Pago', amount: 320000 },
+  ],
+  ar: [
+    { numero: 'F001', cliente: 'Distribuidora del Sur SA', emision: d(-20), venc: d(3),  importe: 1250000 },
+    { numero: 'F002', cliente: 'Industrias Norte SRL',     emision: d(-15), venc: d(8),  importe: 980000 },
+    { numero: 'F003', cliente: 'Comercial Andina',         emision: d(-10), venc: d(15), importe: 2100000 },
+    { numero: 'F004', cliente: 'Logística Patagonia',      emision: d(-5),  venc: d(22), importe: 540000 },
+    { numero: 'F005', cliente: 'Distribuidora del Sur SA', emision: d(-2),  venc: d(35), importe: 1800000 },
+    { numero: 'F006', cliente: 'Tech Solutions SA',        emision: d(-1),  venc: d(45), importe: 760000 },
+  ],
+  cr: [
+    { numero: 'CR-1023', cliente: 'Industrias Norte SRL', venc: d(5),  importe: 650000, banco: 'BBVA' },
+    { numero: 'CR-1024', cliente: 'Comercial Andina',     venc: d(12), importe: 420000, banco: 'Galicia' },
+    { numero: 'CR-1025', cliente: 'Logística Patagonia',  venc: d(28), importe: 880000, banco: 'Macro' },
+  ],
+  ap: [
+    { numero: 'P201', proveedor: 'Proveedor Insumos SA', venc: d(2),  importe: 720000 },
+    { numero: 'P202', proveedor: 'Servicios Logísticos', venc: d(7),  importe: 340000 },
+    { numero: 'P203', proveedor: 'Energía Eléctrica',    venc: d(10), importe: 280000 },
+    { numero: 'P204', proveedor: 'Materias Primas SRL',  venc: d(18), importe: 1450000 },
+    { numero: 'P205', proveedor: 'Telecom',              venc: d(25), importe: 95000 },
+    { numero: 'P206', proveedor: 'Proveedor Insumos SA', venc: d(40), importe: 980000 },
+  ],
+  ce: [
+    { numero: 'CE-5501', proveedor: 'Materias Primas SRL',  venc: d(4),  importe: 650000 },
+    { numero: 'CE-5502', proveedor: 'Servicios Logísticos', venc: d(14), importe: 230000 },
+    { numero: 'CE-5503', proveedor: 'Proveedor Insumos SA', venc: d(30), importe: 1100000 },
+  ],
+  mn: [
+    { desc: 'Sueldos quincena',          type: 'out', date: d(3),  amount: 2400000 },
+    { desc: 'AFIP — IVA',                type: 'out', date: d(18), amount: 850000 },
+    { desc: 'Cuota préstamo Galicia',    type: 'out', date: d(10), amount: 320000 },
+    { desc: 'Sindicato — aporte mensual',type: 'out', date: d(20), amount: 180000 },
+    { desc: 'Sueldos fin de mes',        type: 'out', date: d(18), amount: 2400000 },
+  ],
+};
+
+/* =====================================================================
+   HELPERS
+   ===================================================================== */
+
+const fmt = n => '$ ' + Math.round(n).toLocaleString('es-AR');
+const $ = id => document.getElementById(id);
+
+/* =====================================================================
+   MAPPERS  ──  estado ↔ columnas de Supabase
+   ===================================================================== */
+
+const mappers = {
+  balances: {
+    table: 'cuentas_bancarias',
+    fromDb: r => ({ id: r.id, label: r.label, amount: Number(r.saldo), orden: r.orden }),
+    toDb:   r => ({ label: r.label || 'Cuenta', saldo: r.amount, orden: r.orden ?? 0 }),
+  },
+  ar: {
+    table: 'cuentas_por_cobrar',
+    fromDb: r => ({ id: r.id, numero: r.numero_factura, cliente: r.cliente_nombre || '', emision: r.fecha_emision || '', venc: r.fecha_vencimiento, importe: Number(r.importe) }),
+    toDb:   r => ({ numero_factura: r.numero || 'S/N', cliente_nombre: r.cliente, fecha_emision: r.emision || null, fecha_vencimiento: r.venc, importe: r.importe }),
+  },
+  cr: {
+    table: 'cheques_recibidos',
+    fromDb: r => ({ id: r.id, numero: r.numero, cliente: r.cliente_nombre || '', banco: r.banco || '', venc: r.fecha_vencimiento, importe: Number(r.importe) }),
+    toDb:   r => ({ numero: r.numero || 'S/N', cliente_nombre: r.cliente, banco: r.banco, fecha_vencimiento: r.venc, importe: r.importe }),
+  },
+  ap: {
+    table: 'cuentas_por_pagar',
+    fromDb: r => ({ id: r.id, numero: r.numero_factura, proveedor: r.proveedor_nombre || '', venc: r.fecha_vencimiento, importe: Number(r.importe) }),
+    toDb:   r => ({ numero_factura: r.numero || 'S/N', proveedor_nombre: r.proveedor, fecha_vencimiento: r.venc, importe: r.importe }),
+  },
+  ce: {
+    table: 'cheques_emitidos',
+    fromDb: r => ({ id: r.id, numero: r.numero, proveedor: r.proveedor_nombre || '', venc: r.fecha_vencimiento, importe: Number(r.importe) }),
+    toDb:   r => ({ numero: r.numero || 'S/N', proveedor_nombre: r.proveedor, fecha_vencimiento: r.venc, importe: r.importe }),
+  },
+  mn: {
+    table: 'movimientos_manuales',
+    fromDb: r => ({ id: r.id, desc: r.descripcion, type: r.tipo, date: r.fecha, amount: Number(r.importe) }),
+    toDb:   r => ({ descripcion: r.desc, tipo: r.type, fecha: r.date, importe: r.amount }),
+  },
+};
+
+/* =====================================================================
+   AUTH
+   ===================================================================== */
+
+function showLogin() {
+  $('authOverlay').style.display = 'flex';
+  setTimeout(() => $('authEmail').focus(), 50);
+}
+
+function hideLogin() {
+  $('authOverlay').style.display = 'none';
+  $('authPassword').value = '';
+  $('authMsg').textContent = '';
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  if (mode === 'signin') {
+    $('authTitle').textContent = 'Ingresar';
+    $('authSub').textContent = 'Accedé a tu cash flow proyectado';
+    $('authSubmit').textContent = 'Ingresar';
+    $('authToggle').textContent = 'Crear cuenta';
+    $('authPassword').setAttribute('autocomplete', 'current-password');
+  } else {
+    $('authTitle').textContent = 'Crear cuenta';
+    $('authSub').textContent = 'Una cuenta nueva para empezar';
+    $('authSubmit').textContent = 'Registrarme';
+    $('authToggle').textContent = 'Ya tengo cuenta';
+    $('authPassword').setAttribute('autocomplete', 'new-password');
+  }
+  $('authMsg').textContent = '';
+}
+
+async function handleAuthSubmit() {
+  const email = $('authEmail').value.trim();
+  const password = $('authPassword').value;
+  const msg = $('authMsg');
+  msg.className = 'auth-msg';
+  msg.textContent = '';
+
+  if (!email || !password) {
+    msg.className = 'auth-msg error';
+    msg.textContent = 'Completá email y contraseña.';
+    return;
+  }
+
+  $('authSubmit').disabled = true;
+  $('authSubmit').textContent = '...';
+
+  const op = authMode === 'signin'
+    ? await sb.auth.signInWithPassword({ email, password })
+    : await sb.auth.signUp({ email, password });
+
+  $('authSubmit').disabled = false;
+  setAuthMode(authMode);
+
+  if (op.error) {
+    msg.className = 'auth-msg error';
+    msg.textContent = op.error.message;
+    return;
+  }
+
+  if (authMode === 'signup' && !op.data.session) {
+    msg.className = 'auth-msg info';
+    msg.textContent = 'Cuenta creada. Revisá tu email para confirmar antes de ingresar.';
+    return;
+  }
+
+  onAuthenticated(op.data.user);
+}
+
+async function logout() {
+  await sb.auth.signOut();
+  location.reload();
+}
+
+async function onAuthenticated(user) {
+  currentUser = user;
+  $('userEmail').textContent = user.email || '';
+  hideLogin();
+  await loadAllFromDb();
+}
+
+async function initAuth() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) {
+    onAuthenticated(session.user);
+  } else {
+    showLogin();
+  }
+  sb.auth.onAuthStateChange((event) => {
+    if (event === 'SIGNED_OUT') location.reload();
+  });
+}
+
+/* =====================================================================
+   DB OPS
+   ===================================================================== */
+
+async function loadAllFromDb() {
+  const [bal, ar, cr, ap, ce, mn] = await Promise.all([
+    sb.from('cuentas_bancarias').select('*').order('orden').order('created_at'),
+    sb.from('cuentas_por_cobrar').select('*').order('fecha_vencimiento'),
+    sb.from('cheques_recibidos').select('*').order('fecha_vencimiento'),
+    sb.from('cuentas_por_pagar').select('*').order('fecha_vencimiento'),
+    sb.from('cheques_emitidos').select('*').order('fecha_vencimiento'),
+    sb.from('movimientos_manuales').select('*').order('fecha'),
+  ]);
+  for (const r of [bal, ar, cr, ap, ce, mn]) {
+    if (r.error) console.error('load error', r.error);
+  }
+  state.balances = (bal.data || []).map(mappers.balances.fromDb);
+  state.ar = (ar.data || []).map(mappers.ar.fromDb);
+  state.cr = (cr.data || []).map(mappers.cr.fromDb);
+  state.ap = (ap.data || []).map(mappers.ap.fromDb);
+  state.ce = (ce.data || []).map(mappers.ce.fromDb);
+  state.mn = (mn.data || []).map(mappers.mn.fromDb);
+
+  renderBalances();
+  renderTab();
+  recompute();
+}
+
+async function persistRow(stateKey, row) {
+  const m = mappers[stateKey];
+  const payload = { ...m.toDb(row), user_id: currentUser.id };
+  if (row.id) payload.id = row.id;
+  const { data, error } = await sb.from(m.table).upsert(payload).select().single();
+  if (error) {
+    console.error('persist error', stateKey, error);
+    return null;
+  }
+  if (!row.id) row.id = data.id;
+  return data;
+}
+
+async function deleteRow(stateKey, id) {
+  if (!id) return;
+  const m = mappers[stateKey];
+  const { error } = await sb.from(m.table).delete().eq('id', id);
+  if (error) console.error('delete error', stateKey, error);
+}
+
+/* Debounce simple para no martillar la BD en cada keystroke numérico */
+const debouncers = new Map();
+function debouncedPersist(stateKey, row, delay = 600) {
+  const key = stateKey + ':' + (row.id || 'new');
+  clearTimeout(debouncers.get(key));
+  debouncers.set(key, setTimeout(() => persistRow(stateKey, row), delay));
+}
+
+/* =====================================================================
+   SEED (datos de ejemplo)
+   ===================================================================== */
+
+async function seedDb() {
+  const btn = $('seedBtn');
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Cargando...';
+  try {
+    const uid = currentUser.id;
+    const rows = {
+      cuentas_bancarias: seedData.balances.map((b, i) => ({ ...mappers.balances.toDb({ ...b, orden: i }), user_id: uid })),
+      cuentas_por_cobrar: seedData.ar.map(r => ({ ...mappers.ar.toDb(r), user_id: uid })),
+      cheques_recibidos: seedData.cr.map(r => ({ ...mappers.cr.toDb(r), user_id: uid })),
+      cuentas_por_pagar: seedData.ap.map(r => ({ ...mappers.ap.toDb(r), user_id: uid })),
+      cheques_emitidos: seedData.ce.map(r => ({ ...mappers.ce.toDb(r), user_id: uid })),
+      movimientos_manuales: seedData.mn.map(r => ({ ...mappers.mn.toDb(r), user_id: uid })),
+    };
+    for (const [table, payload] of Object.entries(rows)) {
+      const { error } = await sb.from(table).insert(payload);
+      if (error) throw new Error(table + ': ' + error.message);
+    }
+    await loadAllFromDb();
+    btn.textContent = '✓ Cargado';
+    setTimeout(() => btn.textContent = original, 1500);
+  } catch (e) {
+    alert('Error al cargar datos de ejemplo: ' + e.message);
+    btn.textContent = original;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* =====================================================================
+   RENDER: Saldos iniciales
+   ===================================================================== */
+
+function renderBalances() {
+  const root = $('balances');
+  root.innerHTML = '';
+  state.balances.forEach((b, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `
+      <input value="${b.label}" data-k="label" data-i="${i}"
+             style="background: transparent; border: none; color: var(--muted); font-size: 12px; flex: 1; font-family: inherit;" />
+      <input class="amount" type="number" value="${b.amount}" data-k="amount" data-i="${i}" />
+      <button class="danger" data-del="${i}" style="margin-left: 6px;">×</button>
+    `;
+    root.appendChild(row);
+  });
+
+  root.querySelectorAll('input').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const i = +e.target.dataset.i;
+      const k = e.target.dataset.k;
+      const v = e.target.type === 'number' ? Number(e.target.value) || 0 : e.target.value;
+      state.balances[i][k] = v;
+      $('totalInicial').textContent = fmt(totalInicial());
+      recompute();
+      debouncedPersist('balances', state.balances[i]);
+    });
+  });
+  root.querySelectorAll('button[data-del]').forEach(b => {
+    b.addEventListener('click', async (e) => {
+      const i = +e.target.dataset.del;
+      const removed = state.balances.splice(i, 1)[0];
+      await deleteRow('balances', removed.id);
+      renderBalances();
+      recompute();
+    });
+  });
+
+  $('totalInicial').textContent = fmt(totalInicial());
+}
+
+function totalInicial() {
+  return state.balances.reduce((s, b) => s + b.amount, 0);
+}
+
+async function addBalance() {
+  const newRow = { label: 'Nueva cuenta', amount: 0, orden: state.balances.length };
+  state.balances.push(newRow);
+  renderBalances();
+  recompute();
+  await persistRow('balances', newRow);
+}
+
+/* =====================================================================
+   RENDER: Tablas (tabs)
+   ===================================================================== */
+
+const tabConfigs = {
+  ar: {
+    title: 'Cuentas por cobrar (facturas de venta pendientes)',
+    cols: ['Factura', 'Cliente', 'Emisión', 'Vencimiento', 'Importe', ''],
+    rowHTML: (it, i) => `
+      <td><input value="${it.numero || ''}" data-k="numero" data-i="${i}" data-t="ar" style="width: 90px;" /></td>
+      <td><input value="${it.cliente || ''}" data-k="cliente" data-i="${i}" data-t="ar" /></td>
+      <td><input type="date" value="${it.emision || ''}" data-k="emision" data-i="${i}" data-t="ar" /></td>
+      <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="ar" /></td>
+      <td class="amount income"><input type="number" value="${it.importe}" data-k="importe" data-i="${i}" data-t="ar" style="text-align:right;" /></td>
+      <td><button class="danger" data-del="ar" data-i="${i}">×</button></td>
+    `,
+    blank: () => ({ numero: 'S/N', cliente: '', emision: '', venc: d(7), importe: 0 }),
+  },
+  cr: {
+    title: 'Cheques recibidos en cartera',
+    cols: ['Cheque', 'Cliente', 'Banco', 'Vencimiento', 'Importe', ''],
+    rowHTML: (it, i) => `
+      <td><input value="${it.numero || ''}" data-k="numero" data-i="${i}" data-t="cr" style="width: 90px;" /></td>
+      <td><input value="${it.cliente || ''}" data-k="cliente" data-i="${i}" data-t="cr" /></td>
+      <td><input value="${it.banco || ''}" data-k="banco" data-i="${i}" data-t="cr" /></td>
+      <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="cr" /></td>
+      <td class="amount income"><input type="number" value="${it.importe}" data-k="importe" data-i="${i}" data-t="cr" style="text-align:right;" /></td>
+      <td><button class="danger" data-del="cr" data-i="${i}">×</button></td>
+    `,
+    blank: () => ({ numero: 'CR-', cliente: '', banco: '', venc: d(7), importe: 0 }),
+  },
+  ap: {
+    title: 'Cuentas por pagar (facturas de compra pendientes)',
+    cols: ['Factura', 'Proveedor', 'Vencimiento', 'Importe', ''],
+    rowHTML: (it, i) => `
+      <td><input value="${it.numero || ''}" data-k="numero" data-i="${i}" data-t="ap" style="width: 90px;" /></td>
+      <td><input value="${it.proveedor || ''}" data-k="proveedor" data-i="${i}" data-t="ap" /></td>
+      <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="ap" /></td>
+      <td class="amount expense"><input type="number" value="${it.importe}" data-k="importe" data-i="${i}" data-t="ap" style="text-align:right;" /></td>
+      <td><button class="danger" data-del="ap" data-i="${i}">×</button></td>
+    `,
+    blank: () => ({ numero: 'S/N', proveedor: '', venc: d(7), importe: 0 }),
+  },
+  ce: {
+    title: 'Cheques emitidos pendientes de débito',
+    cols: ['Cheque', 'Proveedor', 'Vencimiento', 'Importe', ''],
+    rowHTML: (it, i) => `
+      <td><input value="${it.numero || ''}" data-k="numero" data-i="${i}" data-t="ce" style="width: 90px;" /></td>
+      <td><input value="${it.proveedor || ''}" data-k="proveedor" data-i="${i}" data-t="ce" /></td>
+      <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="ce" /></td>
+      <td class="amount expense"><input type="number" value="${it.importe}" data-k="importe" data-i="${i}" data-t="ce" style="text-align:right;" /></td>
+      <td><button class="danger" data-del="ce" data-i="${i}">×</button></td>
+    `,
+    blank: () => ({ numero: 'CE-', proveedor: '', venc: d(7), importe: 0 }),
+  },
+  mn: {
+    title: 'Movimientos manuales (sueldos, impuestos, préstamos, etc.)',
+    cols: ['Concepto', 'Tipo', 'Fecha', 'Importe', ''],
+    rowHTML: (it, i) => `
+      <td><input value="${it.desc || ''}" data-k="desc" data-i="${i}" data-t="mn" /></td>
+      <td><span class="badge ${it.type}">${it.type === 'in' ? 'Ingreso' : 'Egreso'}</span></td>
+      <td><input type="date" value="${it.date}" data-k="date" data-i="${i}" data-t="mn" /></td>
+      <td class="amount ${it.type === 'in' ? 'income' : 'expense'}"><input type="number" value="${it.amount}" data-k="amount" data-i="${i}" data-t="mn" style="text-align:right;" /></td>
+      <td><button class="danger" data-del="mn" data-i="${i}">×</button></td>
+    `,
+    blank: () => ({ desc: '', type: 'out', date: d(7), amount: 0 }),
+  },
+};
+
+function renderTab() {
+  const tab = state.ui.tab;
+  const cfg = tabConfigs[tab];
+  const data = state[tab];
+  const root = $('tabContent');
+
+  if (!data.length) {
+    root.innerHTML = `<div class="empty">Sin registros para mostrar.</div>`;
+    return;
+  }
+
+  const head = cfg.cols.map(c => `<th>${c}</th>`).join('');
+  const body = data.map((it, i) => `<tr>${cfg.rowHTML(it, i)}</tr>`).join('');
+
+  root.innerHTML = `
+    <div style="font-size: 12px; color: var(--muted); margin-bottom: 10px;">${cfg.title} — ${data.length} registro(s)</div>
+    <table>
+      <thead><tr>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+
+  root.querySelectorAll('input').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const t = e.target.dataset.t, i = +e.target.dataset.i, k = e.target.dataset.k;
+      const v = e.target.type === 'number' ? Number(e.target.value) || 0 : e.target.value;
+      state[t][i][k] = v;
+      recompute();
+      debouncedPersist(t, state[t][i]);
+    });
+  });
+  root.querySelectorAll('button[data-del]').forEach(b => {
+    b.addEventListener('click', async (e) => {
+      const t = e.target.dataset.del, i = +e.target.dataset.i;
+      const removed = state[t].splice(i, 1)[0];
+      await deleteRow(t, removed.id);
+      renderTab();
+      recompute();
+    });
+  });
+}
+
+/* =====================================================================
+   AGREGACIÓN: construir series de cash flow
+   ===================================================================== */
+
+function bucketKey(dateStr, bucket) {
+  const dt = new Date(dateStr + 'T00:00:00');
+  if (bucket === 'day') return dateStr;
+  if (bucket === 'month') return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  const day = dt.getDay() || 7;
+  dt.setDate(dt.getDate() - (day - 1));
+  return dt.toISOString().slice(0, 10);
+}
+
+function bucketLabel(key, bucket) {
+  if (bucket === 'month') {
+    const [y, m] = key.split('-');
+    return new Date(+y, +m - 1, 1).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' });
+  }
+  const dt = new Date(key + 'T00:00:00');
+  if (bucket === 'week') return 'Sem ' + dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+  return dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+}
+
+function collectMovements() {
+  const mv = [];
+  state.ar.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'in',  source: 'CxC' }));
+  state.cr.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'in',  source: 'Cheque' }));
+  state.ap.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'out', source: 'CxP' }));
+  state.ce.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'out', source: 'Cheque' }));
+  state.mn.forEach(x => x.date && mv.push({ date: x.date, amount: x.amount, dir: x.type, source: 'Manual', desc: x.desc }));
+  return mv;
+}
+
+function buildSeries() {
+  const bucket = state.ui.bucket;
+  const end = state.ui.endDate;
+  const movs = collectMovements().filter(m => m.date <= end);
+  const keys = new Set();
+  movs.forEach(m => keys.add(bucketKey(m.date, bucket)));
+  const sorted = [...keys].sort();
+
+  const ingresos = {}, egresos = {};
+  sorted.forEach(k => { ingresos[k] = 0; egresos[k] = 0; });
+  movs.forEach(m => {
+    const k = bucketKey(m.date, bucket);
+    if (m.dir === 'in') ingresos[k] += m.amount;
+    else egresos[k] += m.amount;
+  });
+
+  let acc = totalInicial();
+  const accum = [];
+  const labels = [];
+  const ingArr = [], egrArr = [];
+  sorted.forEach(k => {
+    acc += (ingresos[k] - egresos[k]);
+    accum.push(acc);
+    labels.push(bucketLabel(k, bucket));
+    ingArr.push(ingresos[k]);
+    egrArr.push(-egresos[k]);
+  });
+
+  return { labels, ingArr, egrArr, accum, sortedKeys: sorted, movs };
+}
+
+/* =====================================================================
+   CHART
+   ===================================================================== */
+
+let chart;
+function renderChart(series) {
+  const ctx = $('cashChart').getContext('2d');
+  const data = {
+    labels: series.labels,
+    datasets: [
+      {
+        type: 'bar', label: 'Ingresos', data: series.ingArr,
+        backgroundColor: 'rgba(34, 197, 94, 0.7)', borderRadius: 4, stack: 'mov', yAxisID: 'y',
+      },
+      {
+        type: 'bar', label: 'Egresos', data: series.egrArr,
+        backgroundColor: 'rgba(239, 68, 68, 0.7)', borderRadius: 4, stack: 'mov', yAxisID: 'y',
+      },
+      {
+        type: 'line', label: 'Saldo acumulado', data: series.accum,
+        borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.15)',
+        tension: 0.25, fill: true, pointRadius: 4, pointHoverRadius: 6,
+        borderWidth: 2.5, yAxisID: 'y2',
+      },
+    ],
+  };
+  const opts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: '#e2e8f0', font: { size: 12 } } },
+      tooltip: {
+        callbacks: { label: c => c.dataset.label + ': ' + fmt(Math.abs(c.parsed.y)) },
+      },
+    },
+    scales: {
+      x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' }, stacked: true },
+      y: {
+        ticks: { color: '#94a3b8', callback: v => fmt(v) },
+        grid: { color: 'rgba(148,163,184,0.08)' },
+        title: { display: true, text: 'Movimientos por período', color: '#94a3b8' },
+      },
+      y2: {
+        position: 'right',
+        ticks: { color: '#38bdf8', callback: v => fmt(v) },
+        grid: { drawOnChartArea: false },
+        title: { display: true, text: 'Saldo acumulado', color: '#38bdf8' },
+      },
+    },
+  };
+  if (chart) { chart.data = data; chart.options = opts; chart.update(); }
+  else chart = new Chart(ctx, { data, options: opts });
+}
+
+/* =====================================================================
+   ALERTAS
+   ===================================================================== */
+
+function renderAlerts(series) {
+  const root = $('alerts');
+  const critical = [];
+  let prev = totalInicial();
+  series.accum.forEach((v, i) => {
+    if (v < 0 && prev >= 0) critical.push({ label: series.labels[i], saldo: v, tipo: 'rojo' });
+    if (v >= 0 && prev < 0) critical.push({ label: series.labels[i], saldo: v, tipo: 'verde' });
+    prev = v;
+  });
+  const minVal = series.accum.length ? Math.min(...series.accum, totalInicial()) : totalInicial();
+  const maxVal = series.accum.length ? Math.max(...series.accum, totalInicial()) : totalInicial();
+
+  let html = '';
+  if (minVal < 0) {
+    html += `<div class="alert">
+      <div class="alert-title">⚠ Posible faltante de caja proyectado</div>
+      Saldo mínimo proyectado: <strong>${fmt(minVal)}</strong>.
+      ${critical.length ? '<ul>' + critical.map(c => `<li>${c.tipo === 'rojo' ? 'Entra en rojo' : 'Vuelve a positivo'} en ${c.label} (saldo ${fmt(c.saldo)})</li>`).join('') + '</ul>' : ''}
+    </div>`;
+  } else if (minVal < totalInicial() * 0.2) {
+    html += `<div class="alert warn">
+      <div class="alert-title">⚠ Caja ajustada</div>
+      Saldo mínimo proyectado: <strong>${fmt(minVal)}</strong>. Atención a la liquidez en el período.
+    </div>`;
+  } else {
+    html += `<div class="alert ok">
+      <div class="alert-title">✓ Proyección saludable</div>
+      Saldo mínimo proyectado: <strong>${fmt(minVal)}</strong>. Máximo: <strong>${fmt(maxVal)}</strong>.
+    </div>`;
+  }
+  root.innerHTML = html;
+}
+
+/* =====================================================================
+   RECOMPUTE
+   ===================================================================== */
+
+function recompute() {
+  const series = buildSeries();
+  const totalIn = series.ingArr.reduce((s, v) => s + v, 0);
+  const totalOut = series.egrArr.reduce((s, v) => s - v, 0);
+  $('kpiInicial').textContent  = fmt(totalInicial());
+  $('kpiIngresos').textContent = fmt(totalIn);
+  $('kpiEgresos').textContent  = fmt(totalOut);
+  $('kpiFinal').textContent    = fmt(totalInicial() + totalIn - totalOut);
+  $('totalInicial').textContent = fmt(totalInicial());
+  renderChart(series);
+  renderAlerts(series);
+}
+
+/* =====================================================================
+   EVENTOS UI
+   ===================================================================== */
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    state.ui.tab = t.dataset.tab;
+    renderTab();
+  });
+});
+
+$('bucketSel').addEventListener('change', e => {
+  state.ui.bucket = e.target.value;
+  recompute();
+});
+
+$('endDate').addEventListener('change', e => {
+  state.ui.endDate = e.target.value;
+  recompute();
+});
+
+$('addBalance').addEventListener('click', addBalance);
+
+$('addManual').addEventListener('click', async () => {
+  const desc = $('m_desc').value.trim();
+  const type = $('m_type').value;
+  const date = $('m_date').value;
+  const amount = Number($('m_amount').value) || 0;
+  if (!desc || !date || !amount) {
+    alert('Completá concepto, fecha e importe.');
+    return;
+  }
+  const row = { desc, type, date, amount };
+  state.mn.push(row);
+  $('m_desc').value = ''; $('m_amount').value = '';
+  document.querySelector('.tab[data-tab="mn"]').click();
+  recompute();
+  await persistRow('mn', row);
+  renderTab(); // re-render para mostrar el botón × con id correcto
+});
+
+$('syncBtn').addEventListener('click', async () => {
+  const btn = $('syncBtn');
+  btn.disabled = true;
+  btn.textContent = 'Sincronizando...';
+  // TODO: invocar Edge Function que consume Xubio (test_xubio.py muestra el patrón).
+  // Por ahora dejamos registro del intento en sync_log y recargamos.
+  await sb.from('sync_log').insert({
+    user_id: currentUser.id,
+    resource: 'manual_trigger',
+    status: 'success',
+    items_synced: 0,
+    finished_at: new Date().toISOString(),
+  });
+  await loadAllFromDb();
+  btn.textContent = '✓ Sincronizado';
+  setTimeout(() => { btn.textContent = 'Sincronizar Xubio'; btn.disabled = false; }, 1500);
+});
+
+$('seedBtn').addEventListener('click', seedDb);
+$('logoutBtn').addEventListener('click', logout);
+
+$('authSubmit').addEventListener('click', handleAuthSubmit);
+$('authToggle').addEventListener('click', () => setAuthMode(authMode === 'signin' ? 'signup' : 'signin'));
+$('authPassword').addEventListener('keydown', e => { if (e.key === 'Enter') handleAuthSubmit(); });
+$('authEmail').addEventListener('keydown', e => { if (e.key === 'Enter') $('authPassword').focus(); });
+
+/* =====================================================================
+   INIT
+   ===================================================================== */
+
+$('endDate').value = state.ui.endDate;
+$('m_date').value = d(7);
+initAuth();
+</script>
+
+</body>
+</html>
