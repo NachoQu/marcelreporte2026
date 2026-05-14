@@ -238,7 +238,7 @@ Deno.serve(async (req: Request) => {
   // (sin xubio_id) se preservan en todas las tablas, incluyendo saldos
   // que el usuario ya completó si vienen de cuentas xubio (los saldos
   // se preservan por upsert con onConflict).
-  for (const table of ["cuentas_por_cobrar", "cuentas_por_pagar", "cheques_recibidos"]) {
+  for (const table of ["cuentas_por_cobrar", "cuentas_por_pagar", "cheques_recibidos", "cheques_emitidos"]) {
     const { error } = await supabase.from(table).delete().not("xubio_id", "is", null);
     if (error) {
       await logSync({
@@ -513,11 +513,119 @@ Deno.serve(async (req: Request) => {
     results.push({ resource: "cheques_recibidos", status: "error", items_synced: 0, items_failed: 0, error_message: msg });
   }
 
-  // NOTE: Cheques emitidos NO se sincronizan desde Xubio.
-  // /pagoBean tiene un bug en el backend de Xubio (devuelve 401 con stack trace
-  // Java: PagoBeanResource.getFacturaCompraBeans). Hasta que Xubio lo arregle,
-  // los cheques emitidos se cargan manualmente desde la UI ("+ Agregar cheque
-  // emitido" en la pestaña correspondiente).
+  // ===== Cheques emitidos / propios (parseados desde /pagoBean) =====
+  // Mismo patrón que /cobranzaBean: sin filtro de fecha el endpoint timeoutea,
+  // con `fechaDesde` + `fechaHasta` responde rápido. Cheques propios = emitidos
+  // por nosotros para pagar a proveedores. Vienen embebidos en los pagos como
+  // `transaccionInstrumentoDePago[*]` con `chequePropio: true` o `numeroCheque`.
+  try {
+    // Mapa banco_id → nombre (reutilizamos el mismo /banco).
+    const bancosE: Record<string, string> = {};
+    try {
+      const { raw: bancosRaw } = await fetchXubioRaw(token, "/banco");
+      for (const b of unwrapList<Record<string, unknown>>(bancosRaw)) {
+        const id = String(b.banco_id ?? b.id ?? b.ID ?? "");
+        if (id) bancosE[id] = String(b.nombre ?? id);
+      }
+    } catch (_) { /* sin banco-map: el cheque queda sin nombre de banco */ }
+
+    // Mapa proveedor xubio_id → nombre (ya sincronizados arriba).
+    const proveedoresNombre: Record<string, string> = {};
+    const { data: provData } = await supabase
+      .from("proveedores")
+      .select("xubio_id,nombre")
+      .not("xubio_id", "is", null);
+    for (const p of provData || []) {
+      if (p.xubio_id) proveedoresNombre[String(p.xubio_id)] = String(p.nombre);
+    }
+
+    // Ventana 120 días hacia atrás (pagos recientes con cheques diferidos).
+    const pagoDesde = new Date();
+    pagoDesde.setDate(pagoDesde.getDate() - 120);
+    const fechaDesdeP = pagoDesde.toISOString().slice(0, 10);
+    const todayP = new Date().toISOString().slice(0, 10);
+
+    const { raw: pagoRaw, rawText: pagoText } = await fetchXubioRaw(
+      token,
+      `/pagoBean?fechaDesde=${fechaDesdeP}&fechaHasta=${todayP}`,
+    );
+    const pagos = unwrapList<Record<string, unknown>>(pagoRaw);
+
+    const chequeCutoffE = new Date();
+    chequeCutoffE.setDate(chequeCutoffE.getDate() - 7);
+    const chequeCutoffISOE = chequeCutoffE.toISOString().slice(0, 10);
+
+    const rowsE: Record<string, unknown>[] = [];
+    for (const p of pagos) {
+      const provObj = (p.proveedor ?? {}) as Record<string, unknown>;
+      const provId = String(provObj.id ?? provObj.ID ?? provObj.proveedorid ?? "");
+      const provNombre = proveedoresNombre[provId] ?? partyName(provObj);
+
+      // Probamos varios nombres posibles del array de instrumentos.
+      const instrumentos = (
+        p.transaccionInstrumentoDePago ??
+        p.transaccionInstrumentoPago ??
+        p.instrumentoDePago ??
+        p.instrumentosPago ??
+        []
+      ) as Record<string, unknown>[];
+      if (!Array.isArray(instrumentos)) continue;
+
+      for (const inst of instrumentos) {
+        const cuenta = (inst.cuenta ?? {}) as Record<string, unknown>;
+        const codigo = String(cuenta.codigo ?? "");
+        const numCheque = inst.numeroCheque ?? inst.numCheque ?? inst.numero;
+        const esChequePropio =
+          inst.chequePropio === true ||
+          codigo === "CHEQUES_PROPIOS" ||
+          codigo === "CHEQUES_EMITIDOS" ||
+          (!!numCheque && inst.chequeTerceros !== true);
+        if (!esChequePropio) continue;
+
+        const venc = String(inst.vtoCheque ?? inst.vencimientoCheque ?? inst.fechaVencimiento ?? "").slice(0, 10);
+        if (!venc || venc < chequeCutoffISOE) continue;
+
+        const bancoObj = (inst.banco ?? {}) as Record<string, unknown>;
+        const bancoId = String(bancoObj.ID ?? bancoObj.id ?? "");
+        const bancoNombre = bancosE[bancoId] ?? bancoId ?? null;
+
+        const xubioId = `${p.transaccionid ?? p.id ?? ""}_${inst.transaccionICId ?? inst.transaccionIPId ?? inst.id ?? ""}_${numCheque ?? ""}`;
+        rowsE.push({
+          user_id: user.id,
+          xubio_id: xubioId,
+          numero: String(numCheque ?? "S/N"),
+          proveedor_nombre: provNombre,
+          banco: bancoNombre,
+          fecha_emision: (p.fecha ?? p.fechaComprobante ?? null) as string | null,
+          fecha_vencimiento: venc,
+          importe: num(inst.importe ?? inst.monto ?? 0),
+          estado: "emitido",
+        });
+      }
+    }
+
+    if (rowsE.length) {
+      const { error } = await supabase
+        .from("cheques_emitidos")
+        .upsert(rowsE, { onConflict: "user_id,xubio_id" });
+      if (error) throw new Error(error.message);
+    }
+
+    await logSync({
+      resource: "cheques_emitidos",
+      status: "success",
+      items_synced: rowsE.length,
+      items_failed: 0,
+      error_message: rowsE.length === 0
+        ? `0 cheques. Pagos escaneados: ${pagos.length}. Sample: ${pagoText.slice(0, 300)}`
+        : undefined,
+    });
+    results.push({ resource: "cheques_emitidos", status: "success", items_synced: rowsE.length, items_failed: 0 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await logSync({ resource: "cheques_emitidos", status: "error", items_synced: 0, items_failed: 0, error_message: msg });
+    results.push({ resource: "cheques_emitidos", status: "error", items_synced: 0, items_failed: 0, error_message: msg });
+  }
 
   const ok = results.every((r) => r.status === "success");
   return json({ ok, results }, ok ? 200 : 207);
