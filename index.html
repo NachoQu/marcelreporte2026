@@ -1837,24 +1837,43 @@ $('addManual').addEventListener('click', async () => {
 $('syncBtn').addEventListener('click', async () => {
   const btn = $('syncBtn');
   btn.disabled = true;
-  btn.textContent = 'Sincronizando...';
+  let total = 0;
+  let errors = [];
   try {
-    const { data, error } = await sb.functions.invoke('sync-xubio', { method: 'POST' });
-    if (error) throw error;
-    await loadAllFromDb();
-    if (data?.ok) {
-      const total = (data.results || []).reduce((s, r) => s + (r.items_synced || 0), 0);
-      btn.textContent = `✓ ${total} items`;
-    } else {
-      const failed = (data?.results || []).filter(r => r.status === 'error').map(r => r.resource).join(', ');
-      btn.textContent = `⚠ Errores: ${failed || 'ver consola'}`;
-      console.warn('sync-xubio results', data);
+    // 1) Sync principal (clientes, proveedores, cxc, cxp, cheques recibidos, cuentas).
+    btn.textContent = 'Sincronizando...';
+    const { data: d1, error: e1 } = await sb.functions.invoke('sync-xubio', { method: 'POST' });
+    if (e1) throw e1;
+    total += (d1?.results || []).reduce((s, r) => s + (r.items_synced || 0), 0);
+    if (d1 && !d1.ok) {
+      const failed = (d1.results || []).filter(r => r.status === 'error').map(r => r.resource);
+      errors.push(...failed);
+      console.warn('sync-xubio results', d1);
     }
+
+    // 2) Sync de cheques emitidos (en otra function porque /pagoBean es lento + flaky).
+    btn.textContent = 'Sincronizando cheques...';
+    try {
+      const { data: d2, error: e2 } = await sb.functions.invoke('sync-xubio-cheques-emitidos', { method: 'POST' });
+      if (e2) throw e2;
+      total += d2?.items_synced || 0;
+      if (d2?.chunks_failed) {
+        console.warn('cheques chunks fallidos:', d2.chunk_errors);
+      }
+    } catch (e) {
+      console.error('sync-xubio-cheques-emitidos failed', e);
+      errors.push('cheques_emitidos');
+    }
+
+    await loadAllFromDb();
+    btn.textContent = errors.length
+      ? `⚠ ${total} items (errores: ${errors.join(', ')})`
+      : `✓ ${total} items`;
   } catch (e) {
     console.error('sync-xubio failed', e);
     btn.textContent = '✗ Falló — ver consola';
   } finally {
-    setTimeout(() => { btn.textContent = 'Sincronizar Xubio'; btn.disabled = false; }, 2500);
+    setTimeout(() => { btn.textContent = 'Sincronizar Xubio'; btn.disabled = false; }, 3000);
   }
 });
 
