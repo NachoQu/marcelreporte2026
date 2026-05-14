@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root {
     /* Paleta Pallets Marcel: verde #00A650 + naranja #F36E22 sobre fondo oscuro
@@ -318,6 +319,39 @@
   }
   .badge.in { background: var(--green-soft); color: var(--green); }
   .badge.out { background: var(--red-soft); color: var(--red); }
+  .cuota-tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 4px;
+    background: rgba(243, 110, 34, 0.10);
+    border: 1px solid rgba(243, 110, 34, 0.35);
+    color: var(--accent-2);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.02em;
+  }
+
+  /* Estado cobrado/pagado en tablas */
+  .pagado-cell { white-space: nowrap; min-width: 130px; }
+  .pagado-cell label {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--muted); cursor: pointer;
+    width: 100%;
+  }
+  .pagado-cell input[type="checkbox"] {
+    width: 14px; height: 14px; margin: 0; cursor: pointer;
+    accent-color: var(--accent);
+  }
+  .pagado-cell input[type="date"] {
+    flex: 1; min-width: 110px; padding: 3px 5px; font-size: 11px;
+  }
+  .pagado-cell .pagado-lbl {
+    font-size: 11px; color: var(--muted); letter-spacing: 0.04em;
+  }
+  tr.paid-row > td { opacity: 0.5; }
+  tr.paid-row > td input, tr.paid-row > td select { color: var(--muted); }
+  tr.paid-row > td.pagado-cell { opacity: 1; }
+  tr.paid-row > td.pagado-cell label { color: var(--accent); font-weight: 600; }
 
   .alert {
     background: rgba(239, 68, 68, 0.1);
@@ -706,6 +740,206 @@
     margin-left: 10px; padding-left: 10px;
     border-left: 1px solid var(--border);
   }
+
+  /* === Toolbar de import/export por tabla === */
+  .data-toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 10px; margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .data-toolbar .left { color: var(--muted); font-size: 12px; }
+  .data-toolbar .right { display: flex; gap: 6px; flex-wrap: wrap; }
+  .data-toolbar button { padding: 6px 11px; font-size: 11px; }
+
+  /* === Modal de import === */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(8, 14, 11, 0.78);
+    display: none; align-items: flex-start; justify-content: center;
+    z-index: 1100;
+    backdrop-filter: blur(4px);
+    padding: 40px 20px;
+    overflow-y: auto;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 720px; max-width: 100%;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+    display: flex; flex-direction: column;
+    max-height: calc(100vh - 80px);
+  }
+  .modal-head {
+    padding: 18px 22px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .modal-head h3 {
+    margin: 0; font-family: var(--font-display);
+    font-size: 15px; font-weight: 700; letter-spacing: -0.01em;
+  }
+  .modal-head .sub { font-size: 11px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .modal-close {
+    background: transparent; color: var(--muted); border: none;
+    font-size: 20px; padding: 0 6px; cursor: pointer;
+  }
+  .modal-close:hover { color: var(--text); transform: none; box-shadow: none; }
+  .modal-body { padding: 20px 22px; overflow-y: auto; }
+  .modal-foot {
+    padding: 14px 22px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; gap: 10px; align-items: center;
+    flex-wrap: wrap;
+  }
+  .modal-foot .left { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .modal-foot .right { display: flex; gap: 8px; }
+
+  .dropzone {
+    border: 2px dashed var(--border-strong);
+    border-radius: 10px;
+    padding: 32px 20px;
+    text-align: center;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    cursor: pointer;
+  }
+  .dropzone:hover, .dropzone.drag {
+    border-color: var(--accent);
+    background: rgba(0, 166, 80, 0.04);
+  }
+  .dropzone .big { font-size: 13px; color: var(--text); margin-bottom: 4px; font-weight: 600; }
+  .dropzone .small { font-size: 11px; color: var(--muted); }
+  .dropzone input[type=file] { display: none; }
+
+  .import-stats {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 10px; margin-bottom: 14px;
+  }
+  .import-stat {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .import-stat .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .import-stat .val { font-size: 20px; font-weight: 700; font-family: var(--font-display); margin-top: 2px; }
+  .import-stat.ok .val { color: var(--green); }
+  .import-stat.err .val { color: var(--red); }
+
+  .import-errors {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-height: 260px;
+    overflow: auto;
+    margin-bottom: 14px;
+  }
+  .import-errors table { font-size: 12px; }
+  .import-errors th { background: var(--panel-2); position: sticky; top: 0; }
+  .import-errors td.err-msg { color: var(--red); font-size: 11px; }
+  .import-errors td.err-row { color: var(--muted); font-variant-numeric: tabular-nums; width: 50px; }
+
+  .mode-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .mode-toggle input { margin: 0; accent-color: var(--accent-2); }
+
+  .modal-msg { font-size: 12px; min-height: 16px; margin-top: 8px; }
+  .modal-msg.err { color: var(--red); }
+  .modal-msg.ok { color: var(--green); }
+  .modal-msg.info { color: var(--muted); }
+
+  /* Wizard de cuotas */
+  .wiz-card { max-width: 720px; width: 92vw; }
+  .wiz-presets {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding-bottom: 14px; margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .wiz-chip {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+  }
+  .wiz-chip:hover { color: var(--text); border-color: var(--accent); }
+  .wiz-chip.active {
+    background: rgba(0, 166, 80, 0.15);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .wiz-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 16px;
+  }
+  .wiz-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .wiz-field label {
+    font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .wiz-field input, .wiz-field select {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 13px;
+    font-family: inherit;
+    width: 100%;
+  }
+  .wiz-hint {
+    font-size: 10px;
+    color: var(--muted);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-left: 6px;
+  }
+  .wiz-preview {
+    margin-top: 16px;
+    padding: 12px 14px;
+    background: var(--panel-2);
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+  }
+  .wiz-preview-head {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .wiz-preview table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .wiz-preview th {
+    color: var(--muted); font-weight: 500;
+    text-align: left; padding: 4px 8px;
+    text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border);
+  }
+  .wiz-preview td {
+    padding: 4px 8px; border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .wiz-preview td.amt { text-align: right; font-variant-numeric: tabular-nums; }
+  .wiz-preview td.dots { color: var(--muted); text-align: center; }
+  .wiz-preview tfoot td { border-bottom: none; padding-top: 6px; color: var(--accent); }
+  .wiz-preview .wiz-empty { color: var(--muted); font-size: 12px; padding: 6px 0; }
+
+  @media (max-width: 720px) {
+    .wiz-grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -749,6 +983,7 @@
     <label>Hasta</label>
     <input type="date" id="endDate" />
     <button id="syncBtn" class="accent-orange" title="Importa desde la API de Xubio">Sincronizar Xubio</button>
+    <button id="exportBtn" class="ghost" title="Descargar la proyección como Excel">↓ Excel</button>
     <span class="header-user">
       <span id="userEmail"></span>
       <button id="logoutBtn" class="ghost" style="padding: 4px 10px">Salir</button>
@@ -768,6 +1003,10 @@
         <strong>Total disponible</strong>
         <strong id="totalInicial" style="color: var(--accent);">$ 0</strong>
       </div>
+      <div style="display: flex; gap: 6px; margin-top: 10px;">
+        <button class="ghost" data-tpl="balances" style="flex: 1; padding: 6px; font-size: 10px;">↓ Plantilla</button>
+        <button class="ghost" data-imp="balances" style="flex: 1; padding: 6px; font-size: 10px;">↑ Importar</button>
+      </div>
     </div>
 
     <div class="panel" style="margin-top: 16px;">
@@ -785,6 +1024,7 @@
       <div class="row"><label>Fecha</label><input id="m_date" type="date" class="amount" style="width: 160px;" /></div>
       <div class="row"><label>Importe</label><input id="m_amount" type="text" inputmode="numeric" class="amount" placeholder="0" /></div>
       <button id="addManual" style="width: 100%; margin-top: 10px;">+ Agregar movimiento manual</button>
+      <button id="openWizard" class="ghost" style="width: 100%; margin-top: 6px;">+ Cargar en cuotas (plan / préstamo / sueldos)</button>
     </div>
   </aside>
 
@@ -818,6 +1058,130 @@
 
 </div>
 
+<!-- Modal de import Excel -->
+<div id="importOverlay" class="modal-overlay" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <h3 id="importTitle">Importar Excel</h3>
+        <div class="sub" id="importSub">—</div>
+      </div>
+      <button class="modal-close" id="importClose" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="importStep1">
+        <label class="dropzone" id="dropzone">
+          <div class="big">Arrastrá un archivo .xlsx / .xls / .csv</div>
+          <div class="small">o hacé click para seleccionarlo</div>
+          <input type="file" id="importFile" accept=".xlsx,.xls,.csv" />
+        </label>
+        <div style="margin-top: 14px; font-size: 12px; color: var(--muted); line-height: 1.6;">
+          <strong style="color: var(--text);">Antes de importar:</strong> descargá la plantilla, no renombres ni reordenes columnas, y revisá los formatos de fecha e importe en la pestaña <em>Instrucciones</em> del archivo.
+        </div>
+      </div>
+      <div id="importStep2" style="display:none">
+        <div class="import-stats">
+          <div class="import-stat"><div class="lbl">Filas leídas</div><div class="val" id="impTotal">0</div></div>
+          <div class="import-stat ok"><div class="lbl">Válidas</div><div class="val" id="impOk">0</div></div>
+          <div class="import-stat err"><div class="lbl">Con error</div><div class="val" id="impErr">0</div></div>
+        </div>
+        <div id="impErrorsWrap" class="import-errors" style="display:none">
+          <table>
+            <thead><tr><th style="width:50px">Fila</th><th>Error</th></tr></thead>
+            <tbody id="impErrorsBody"></tbody>
+          </table>
+        </div>
+        <div id="impMsg" class="modal-msg info"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <div class="left">
+        <label class="mode-toggle" id="modeToggleLabel" style="display:none">
+          <input type="checkbox" id="impReplace" />
+          <span>Reemplazar registros existentes</span>
+        </label>
+      </div>
+      <div class="right">
+        <button class="ghost" id="importCancel">Cancelar</button>
+        <button id="importConfirm" disabled>Importar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="wizardOverlay" class="modal-overlay" role="dialog" aria-modal="true">
+  <div class="modal-card wiz-card">
+    <div class="modal-head">
+      <div>
+        <h3>Cargar movimientos en cuotas</h3>
+        <div class="sub">Plan AFIP · Préstamo / Tarjeta · Sueldo recurrente</div>
+      </div>
+      <button class="modal-close" id="wizardClose" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="wiz-presets">
+        <button type="button" class="wiz-chip" data-preset="afip">Plan AFIP</button>
+        <button type="button" class="wiz-chip" data-preset="prestamo">Préstamo / Tarjeta</button>
+        <button type="button" class="wiz-chip" data-preset="sueldo">Sueldo recurrente</button>
+        <button type="button" class="wiz-chip" data-preset="otro">Otro</button>
+      </div>
+
+      <div class="wiz-grid">
+        <div class="wiz-field"><label>Nombre del grupo</label>
+          <input id="wzGrupo" placeholder="Plan AFIP V537987 / Préstamo NACION 23" />
+        </div>
+        <div class="wiz-field"><label>Tipo</label>
+          <select id="wzTipo"><option value="out">Egreso</option><option value="in">Ingreso</option></select>
+        </div>
+        <div class="wiz-field"><label>Categoría</label>
+          <select id="wzCategoria"></select>
+        </div>
+        <div class="wiz-field"><label>Medio / Banco</label>
+          <input id="wzMedio" placeholder="NACION, BNA, Efectivo..." />
+        </div>
+        <div class="wiz-field"><label>Cantidad de cuotas</label>
+          <input id="wzCantidad" type="number" min="1" max="240" value="12" />
+        </div>
+        <div class="wiz-field"><label>Periodicidad</label>
+          <select id="wzPeriod">
+            <option value="month">Mensual (mismo día)</option>
+            <option value="biweekly">Quincenal (cada 15 días)</option>
+            <option value="weekly">Semanal</option>
+            <option value="days">Cada N días</option>
+          </select>
+        </div>
+        <div class="wiz-field"><label>Fecha primera cuota</label>
+          <input id="wzFecha" type="date" />
+        </div>
+        <div class="wiz-field" id="wzPeriodDaysField" style="display:none"><label>Cada N días</label>
+          <input id="wzPeriodDays" type="number" min="1" value="30" />
+        </div>
+        <div class="wiz-field"><label>Importe primera cuota</label>
+          <input id="wzImporte" class="money" type="text" inputmode="numeric" placeholder="0" />
+        </div>
+        <div class="wiz-field"><label>Variación por cuota
+          <span class="wiz-hint">(+ decreciente, − creciente, 0 fijo)</span></label>
+          <input id="wzDelta" class="money" type="text" inputmode="numeric" placeholder="0" />
+        </div>
+      </div>
+
+      <div class="wiz-preview">
+        <div class="wiz-preview-head">Vista previa</div>
+        <div id="wzPreview"></div>
+      </div>
+
+      <div id="wzMsg" class="modal-msg" style="display:none"></div>
+    </div>
+    <div class="modal-foot">
+      <div class="left"></div>
+      <div class="right">
+        <button class="ghost" id="wizardCancel">Cancelar</button>
+        <button id="wizardConfirm">Generar cuotas</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* =====================================================================
    SUPABASE
@@ -834,11 +1198,18 @@ let authMode = 'signin'; // 'signin' | 'signup'
    ESTADO
    ===================================================================== */
 
-const today = new Date('2026-05-12');
+const toISO = dt => {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+const today = new Date();
+today.setHours(0, 0, 0, 0);
 function d(offset) {
   const x = new Date(today);
   x.setDate(x.getDate() + offset);
-  return x.toISOString().slice(0, 10);
+  return toISO(x);
 }
 
 const state = {
@@ -854,11 +1225,14 @@ const CATEGORIAS_MANUALES = {
   out: [
     'Sueldos Banco',
     'Sueldos Efectivo',
+    'Premios',
+    'SAC',
     'Sindicatos',
     'Sueldos AFIP',
     'Impuestos',
     'Planes AFIP',
     'Préstamos',
+    'Tarjetas',
     'Proveedores Fijos',
     'Cheques Financieros',
     'Otros egresos',
@@ -955,30 +1329,819 @@ const mappers = {
   },
   ar: {
     table: 'cuentas_por_cobrar',
-    fromDb: r => ({ id: r.id, numero: r.numero_factura, cliente: r.cliente_nombre || '', emision: r.fecha_emision || '', venc: r.fecha_vencimiento, importe: Number(r.importe) }),
-    toDb:   r => ({ numero_factura: r.numero || 'S/N', cliente_nombre: r.cliente, fecha_emision: r.emision || null, fecha_vencimiento: r.venc, importe: r.importe }),
+    fromDb: r => ({ id: r.id, numero: r.numero_factura, cliente: r.cliente_nombre || '', emision: r.fecha_emision || '', venc: r.fecha_vencimiento, importe: Number(r.importe), pagadoAt: r.pagado_at || '' }),
+    toDb:   r => ({ numero_factura: r.numero || 'S/N', cliente_nombre: r.cliente, fecha_emision: r.emision || null, fecha_vencimiento: r.venc, importe: r.importe, pagado_at: r.pagadoAt || null }),
   },
   cr: {
     table: 'cheques_recibidos',
-    fromDb: r => ({ id: r.id, numero: r.numero, cliente: r.cliente_nombre || '', banco: r.banco || '', venc: r.fecha_vencimiento, importe: Number(r.importe) }),
-    toDb:   r => ({ numero: r.numero || 'S/N', cliente_nombre: r.cliente, banco: r.banco, fecha_vencimiento: r.venc, importe: r.importe }),
+    fromDb: r => ({ id: r.id, numero: r.numero, cliente: r.cliente_nombre || '', banco: r.banco || '', venc: r.fecha_vencimiento, importe: Number(r.importe), pagadoAt: r.pagado_at || '' }),
+    toDb:   r => ({ numero: r.numero || 'S/N', cliente_nombre: r.cliente, banco: r.banco, fecha_vencimiento: r.venc, importe: r.importe, pagado_at: r.pagadoAt || null }),
   },
   ap: {
     table: 'cuentas_por_pagar',
-    fromDb: r => ({ id: r.id, numero: r.numero_factura, proveedor: r.proveedor_nombre || '', venc: r.fecha_vencimiento, importe: Number(r.importe) }),
-    toDb:   r => ({ numero_factura: r.numero || 'S/N', proveedor_nombre: r.proveedor, fecha_vencimiento: r.venc, importe: r.importe }),
+    fromDb: r => ({ id: r.id, numero: r.numero_factura, proveedor: r.proveedor_nombre || '', venc: r.fecha_vencimiento, importe: Number(r.importe), pagadoAt: r.pagado_at || '' }),
+    toDb:   r => ({ numero_factura: r.numero || 'S/N', proveedor_nombre: r.proveedor, fecha_vencimiento: r.venc, importe: r.importe, pagado_at: r.pagadoAt || null }),
   },
   ce: {
     table: 'cheques_emitidos',
-    fromDb: r => ({ id: r.id, numero: r.numero, proveedor: r.proveedor_nombre || '', venc: r.fecha_vencimiento, importe: Number(r.importe) }),
-    toDb:   r => ({ numero: r.numero || 'S/N', proveedor_nombre: r.proveedor, fecha_vencimiento: r.venc, importe: r.importe }),
+    fromDb: r => ({ id: r.id, numero: r.numero, proveedor: r.proveedor_nombre || '', venc: r.fecha_vencimiento, importe: Number(r.importe), pagadoAt: r.pagado_at || '' }),
+    toDb:   r => ({ numero: r.numero || 'S/N', proveedor_nombre: r.proveedor, fecha_vencimiento: r.venc, importe: r.importe, pagado_at: r.pagadoAt || null }),
   },
   mn: {
     table: 'movimientos_manuales',
-    fromDb: r => ({ id: r.id, desc: r.descripcion, type: r.tipo, categoria: r.categoria || '', date: r.fecha, amount: Number(r.importe) }),
-    toDb:   r => ({ descripcion: r.desc, tipo: r.type, categoria: r.categoria || null, fecha: r.date, importe: r.amount }),
+    fromDb: r => ({
+      id: r.id, desc: r.descripcion, type: r.tipo, categoria: r.categoria || '',
+      date: r.fecha, amount: Number(r.importe),
+      grupoId: r.grupo_id || '', cuotaNro: r.cuota_nro ?? null, cuotaTotal: r.cuota_total ?? null,
+      medio: r.medio || '',
+    }),
+    toDb: r => {
+      const toNullableInt = v => (v === '' || v == null || Number.isNaN(Number(v))) ? null : parseInt(v, 10);
+      return {
+        descripcion: r.desc, tipo: r.type, categoria: r.categoria || null,
+        fecha: r.date, importe: r.amount,
+        grupo_id: r.grupoId || null,
+        cuota_nro: toNullableInt(r.cuotaNro),
+        cuota_total: toNullableInt(r.cuotaTotal),
+        medio: r.medio || null,
+      };
+    },
   },
 };
+
+/* =====================================================================
+   IMPORT/EXPORT EXCEL
+   - Cada pestaña tiene su schema declarativo: columnas, tipos, requeridos.
+   - Plantilla: hoja "Datos" con headers + ejemplos + hoja "Instrucciones".
+   - Validación 100% client-side antes de tocar la base.
+   - Modos: agregar (insert) o reemplazar (delete-all + insert) — RLS limita
+     borrado/insert al user_id del session, así que no hay riesgo cruzado.
+   ===================================================================== */
+
+const TIPOS_CUENTA = ['caja', 'banco', 'banco_cc', 'banco_ca', 'mp', 'wallet', 'plazo_fijo', 'otro'];
+const TIPO_CUENTA_ORDEN = ['caja', 'banco', 'banco_cc', 'banco_ca', 'mp', 'wallet', 'plazo_fijo', 'otro'];
+
+const importSchemas = {
+  balances: {
+    title: 'Saldos Iniciales',
+    sheetName: 'Saldos iniciales',
+    columns: [
+      { key: 'label',  header: 'Cuenta', type: 'string', required: true,
+        example: 'Banco Galicia CC ARS', width: 28 },
+      { key: 'tipo',   header: 'Tipo',   type: 'enum', enum: TIPOS_CUENTA, required: false,
+        default: 'otro', example: 'banco', width: 14 },
+      { key: 'amount', header: 'Saldo',  type: 'number', required: true,
+        example: 1500000, width: 16 },
+    ],
+    examples: [
+      { label: 'Banco Galicia CC ARS', tipo: 'banco',      amount: 1500000 },
+      { label: 'Caja chica oficina',   tipo: 'caja',       amount:   45000 },
+      { label: 'Mercado Pago',         tipo: 'mp',         amount:  280000 },
+      { label: 'Plazo fijo 30 días',   tipo: 'plazo_fijo', amount: 2000000 },
+    ],
+    instructions: [
+      'Una fila por cuenta bancaria, caja o instrumento financiero.',
+      'Cuenta: obligatorio. Es el nombre que vas a ver en la app.',
+      'Tipo: caja | banco | mp | plazo_fijo | otro. Si lo dejás vacío toma "otro".',
+      'Saldo: número entero o decimal. Puede ser negativo (sobregiro).',
+      'No uses separadores de miles. La coma decimal es opcional.',
+    ],
+    toRow: r => ({ label: r.label, amount: r.amount, orden: 0, tipo: r.tipo || 'otro' }),
+  },
+
+  ar: {
+    title: 'Cuentas por cobrar',
+    sheetName: 'Cuentas por cobrar',
+    columns: [
+      { key: 'numero',  header: 'Factura',      type: 'string', required: false, default: 'S/N', example: '0001-00012345', width: 16 },
+      { key: 'cliente', header: 'Cliente',      type: 'string', required: true,  example: 'Distribuidora del Sur SA', width: 30 },
+      { key: 'emision', header: 'Emisión',      type: 'date',   required: false, example: new Date(), width: 14 },
+      { key: 'venc',    header: 'Vencimiento',  type: 'date',   required: true,  example: new Date(), width: 14 },
+      { key: 'importe', header: 'Importe',      type: 'number', required: true,  example: 350000, width: 14 },
+    ],
+    examples: [
+      { numero: '0001-00012345', cliente: 'Distribuidora del Sur SA', emision: '2026-05-01', venc: '2026-06-15', importe: 350000 },
+      { numero: '0001-00012346', cliente: 'Logística Norte SRL',      emision: '2026-05-08', venc: '2026-06-22', importe: 128500 },
+    ],
+    instructions: [
+      'Una fila por factura de venta pendiente de cobro.',
+      'Factura: si la dejás vacía se guarda como "S/N".',
+      'Cliente: obligatorio. Texto libre — no se cruza con el catálogo de Xubio.',
+      'Emisión: opcional. Vencimiento: obligatorio.',
+      'Fechas: formato DD/MM/AAAA o AAAA-MM-DD, o celda con formato fecha de Excel.',
+      'Importe: positivo. Sin separador de miles. Coma decimal opcional.',
+    ],
+    toRow: r => ({ numero: r.numero || 'S/N', cliente: r.cliente, emision: r.emision || '', venc: r.venc, importe: r.importe }),
+  },
+
+  cr: {
+    title: 'Cheques recibidos',
+    sheetName: 'Cheques recibidos',
+    columns: [
+      { key: 'numero',  header: 'Cheque',      type: 'string', required: false, default: 'S/N', example: 'CR-00001', width: 14 },
+      { key: 'cliente', header: 'Cliente',     type: 'string', required: true,  example: 'Distribuidora del Sur SA', width: 30 },
+      { key: 'banco',   header: 'Banco',       type: 'string', required: false, example: 'Santander', width: 18 },
+      { key: 'venc',    header: 'Vencimiento', type: 'date',   required: true,  example: new Date(), width: 14 },
+      { key: 'importe', header: 'Importe',     type: 'number', required: true,  example: 220000, width: 14 },
+    ],
+    examples: [
+      { numero: 'CR-00001', cliente: 'Distribuidora del Sur SA', banco: 'Santander', venc: '2026-06-10', importe: 220000 },
+      { numero: 'CR-00002', cliente: 'Logística Norte SRL',      banco: 'Galicia',   venc: '2026-07-05', importe:  98000 },
+    ],
+    instructions: [
+      'Una fila por cheque en cartera (recibido y aún no depositado/cobrado).',
+      'Cheque: número o identificador interno (libre). Vacío = "S/N".',
+      'Cliente: obligatorio. Banco: opcional pero recomendado.',
+      'Vencimiento: fecha de cobro. Importe: positivo.',
+    ],
+    toRow: r => ({ numero: r.numero || 'S/N', cliente: r.cliente, banco: r.banco || '', venc: r.venc, importe: r.importe }),
+  },
+
+  ap: {
+    title: 'Cuentas por pagar',
+    sheetName: 'Cuentas por pagar',
+    columns: [
+      { key: 'numero',    header: 'Factura',      type: 'string', required: false, default: 'S/N', example: 'A-0003-00000789', width: 18 },
+      { key: 'proveedor', header: 'Proveedor',    type: 'string', required: true,  example: 'Maderas del Plata SA', width: 28 },
+      { key: 'venc',      header: 'Vencimiento',  type: 'date',   required: true,  example: new Date(), width: 14 },
+      { key: 'importe',   header: 'Importe',      type: 'number', required: true,  example: 420000, width: 14 },
+    ],
+    examples: [
+      { numero: 'A-0003-00000789', proveedor: 'Maderas del Plata SA', venc: '2026-06-05', importe: 420000 },
+      { numero: 'B-0004-00001245', proveedor: 'Clavos y Tornillos SRL', venc: '2026-06-18', importe:  85000 },
+    ],
+    instructions: [
+      'Una fila por factura de compra pendiente de pago.',
+      'Factura: vacío = "S/N". Proveedor: obligatorio (texto libre).',
+      'Vencimiento: obligatorio. Importe: positivo (el sistema lo trata como egreso).',
+    ],
+    toRow: r => ({ numero: r.numero || 'S/N', proveedor: r.proveedor, venc: r.venc, importe: r.importe }),
+  },
+
+  ce: {
+    title: 'Cheques emitidos',
+    sheetName: 'Cheques emitidos',
+    columns: [
+      { key: 'numero',    header: 'Cheque',       type: 'string', required: false, default: 'S/N', example: 'CE-00045', width: 14 },
+      { key: 'proveedor', header: 'Proveedor',    type: 'string', required: true,  example: 'Maderas del Plata SA', width: 28 },
+      { key: 'venc',      header: 'Vencimiento',  type: 'date',   required: true,  example: new Date(), width: 14 },
+      { key: 'importe',   header: 'Importe',      type: 'number', required: true,  example: 180000, width: 14 },
+    ],
+    examples: [
+      { numero: 'CE-00045', proveedor: 'Maderas del Plata SA', venc: '2026-06-12', importe: 180000 },
+      { numero: 'CE-00046', proveedor: 'Servicios Logística X', venc: '2026-06-25', importe:  62000 },
+    ],
+    instructions: [
+      'Una fila por cheque propio emitido y aún no debitado.',
+      'Cheque: nº interno o de chequera. Vacío = "S/N".',
+      'Proveedor: obligatorio. Vencimiento: fecha de débito. Importe: positivo.',
+    ],
+    toRow: r => ({ numero: r.numero || 'S/N', proveedor: r.proveedor, venc: r.venc, importe: r.importe }),
+  },
+
+  mn: {
+    title: 'Movimientos manuales',
+    sheetName: 'Movimientos manuales',
+    columns: [
+      { key: 'desc',       header: 'Concepto',     type: 'string', required: true,  example: 'Sueldos quincena mayo', width: 30 },
+      { key: 'type',       header: 'Tipo',         type: 'tipoMov', required: true, example: 'Egreso', width: 12 },
+      { key: 'categoria',  header: 'Categoría',    type: 'enum', enum: ALL_CATEGORIAS, required: false,
+        example: 'Sueldos Banco', width: 22 },
+      { key: 'date',       header: 'Fecha',        type: 'date',   required: true,  example: new Date(), width: 14 },
+      { key: 'amount',     header: 'Importe',      type: 'number', required: true,  example: 850000, width: 14 },
+      { key: 'grupoId',    header: 'Grupo',        type: 'string', required: false, example: 'Plan AFIP V537987', width: 24 },
+      { key: 'cuotaNro',   header: 'Cuota',        type: 'number', required: false, example: 1, width: 10 },
+      { key: 'cuotaTotal', header: 'Total cuotas', type: 'number', required: false, example: 12, width: 12 },
+      { key: 'medio',      header: 'Medio',        type: 'string', required: false, example: 'NACION', width: 14 },
+    ],
+    examples: [
+      { desc: 'Sueldos quincena mayo',         type: 'Egreso',  categoria: 'Sueldos Banco',   date: '2026-05-30', amount: 850000,   grupoId: '',                    cuotaNro: '',  cuotaTotal: '',  medio: 'BNA' },
+      { desc: 'Plan AFIP V537987 (cuota 1/12)', type: 'Egreso',  categoria: 'Planes AFIP',     date: '2026-05-16', amount: 2777300, grupoId: 'Plan AFIP V537987',   cuotaNro: 1,   cuotaTotal: 12,  medio: 'AFIP' },
+      { desc: 'Anticipo cliente XYZ',          type: 'Ingreso', categoria: 'Ingresos Futuros', date: '2026-06-20', amount: 320000,   grupoId: '',                    cuotaNro: '',  cuotaTotal: '',  medio: '' },
+    ],
+    instructions: [
+      'Una fila por movimiento manual (sueldos, impuestos, préstamos, etc).',
+      'Concepto: obligatorio. Tipo: "Ingreso" o "Egreso" (también valen "in"/"out").',
+      'Categoría: opcional. Valores válidos según Tipo:',
+      '   Ingreso → ' + CATEGORIAS_MANUALES.in.join(', '),
+      '   Egreso  → ' + CATEGORIAS_MANUALES.out.join(', '),
+      'Fecha: obligatorio. Importe: positivo siempre (el signo lo da el Tipo).',
+      'Grupo / Cuota / Total cuotas: opcionales. Sirven para agrupar cuotas de un mismo plan o préstamo.',
+      'Medio: opcional. Texto libre (banco, "Efectivo", "AFIP", etc.).',
+    ],
+    toRow: r => ({
+      desc: r.desc, type: r.type, categoria: r.categoria || null, date: r.date, amount: r.amount,
+      grupoId: r.grupoId || '', cuotaNro: r.cuotaNro || null, cuotaTotal: r.cuotaTotal || null, medio: r.medio || '',
+    }),
+  },
+};
+
+/* ---------- Parsers de celdas individuales ---------- */
+
+function parseCellDate(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date && !isNaN(v)) {
+    const y = v.getFullYear(), m = String(v.getMonth() + 1).padStart(2, '0'), d = String(v.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof v === 'number' && isFinite(v)) {
+    // Serial de Excel
+    const ms = Math.round((v - 25569) * 86400 * 1000);
+    const dt = new Date(ms);
+    if (isNaN(dt)) return null;
+    return dt.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+  // AAAA-MM-DD
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  // DD/MM/AAAA o DD-MM-AAAA
+  m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (m) {
+    let [, dd, mm, yy] = m;
+    if (yy.length === 2) yy = (Number(yy) > 70 ? '19' : '20') + yy;
+    return `${yy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  }
+  return null;
+}
+
+function parseCellNumber(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  const s = String(v).trim().replace(/[$\s]/g, '');
+  // Si tiene coma y punto, asumir formato AR ("." miles, "," decimal). Si sólo coma → decimal AR.
+  let clean;
+  if (s.includes(',') && s.includes('.')) clean = s.replace(/\./g, '').replace(',', '.');
+  else if (s.includes(',')) clean = s.replace(',', '.');
+  else clean = s;
+  const n = Number(clean);
+  return isFinite(n) ? n : null;
+}
+
+function parseTipoMov(v) {
+  if (v == null) return null;
+  const s = String(v).trim().toLowerCase();
+  if (['in', 'ingreso', 'ingresos', 'i', '+'].includes(s)) return 'in';
+  if (['out', 'egreso', 'egresos', 'e', '-'].includes(s)) return 'out';
+  return null;
+}
+
+/* ---------- Generación de plantilla .xlsx ---------- */
+
+function downloadTemplate(tabKey) {
+  const schema = importSchemas[tabKey];
+  if (!schema) return;
+  const wb = XLSX.utils.book_new();
+
+  // Hoja de datos: headers + ejemplos
+  const headers = schema.columns.map(c => c.header);
+  const exampleRows = schema.examples.map(ex => schema.columns.map(c => {
+    const v = ex[c.key];
+    if (c.type === 'date' && typeof v === 'string') return new Date(v + 'T00:00:00');
+    return v ?? '';
+  }));
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...exampleRows]);
+  ws['!cols'] = schema.columns.map(c => ({ wch: c.width || 16 }));
+  // Formato de fecha/número en celdas de ejemplo
+  for (let r = 1; r <= exampleRows.length; r++) {
+    schema.columns.forEach((c, i) => {
+      const addr = XLSX.utils.encode_cell({ r, c: i });
+      if (!ws[addr]) return;
+      if (c.type === 'date') ws[addr].z = 'dd/mm/yyyy';
+      if (c.type === 'number') ws[addr].z = '#,##0';
+    });
+  }
+  // Freeze header
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  XLSX.utils.book_append_sheet(wb, ws, schema.sheetName);
+
+  // Hoja de instrucciones
+  const instr = [
+    ['PLANTILLA — ' + schema.title.toUpperCase()],
+    [''],
+    ['INSTRUCCIONES'],
+    ...schema.instructions.map(s => [s]),
+    [''],
+    ['COLUMNAS'],
+    ['Columna', 'Obligatorio', 'Tipo', 'Detalle'],
+    ...schema.columns.map(c => [
+      c.header,
+      c.required ? 'Sí' : 'No',
+      c.type === 'date' ? 'Fecha' : c.type === 'number' ? 'Número' : c.type === 'enum' ? 'Lista' : c.type === 'tipoMov' ? 'Ingreso/Egreso' : 'Texto',
+      c.enum ? c.enum.join(' | ') : (c.default ? 'Default: ' + c.default : ''),
+    ]),
+    [''],
+    ['Generado: ' + new Date().toLocaleString('es-AR')],
+  ];
+  const wsI = XLSX.utils.aoa_to_sheet(instr);
+  wsI['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 60 }];
+  XLSX.utils.book_append_sheet(wb, wsI, 'Instrucciones');
+
+  const filename = `plantilla_${tabKey}_${new Date().toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
+/* ---------- Parser + validador de un archivo ---------- */
+
+async function parseImportFile(file, tabKey) {
+  const schema = importSchemas[tabKey];
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { cellDates: true, type: 'array' });
+  // Buscar la hoja con el nombre esperado; si no, usar la primera con datos.
+  let sheetName = wb.SheetNames.find(n => n.toLowerCase() === schema.sheetName.toLowerCase());
+  if (!sheetName) sheetName = wb.SheetNames.find(n => n.toLowerCase() !== 'instrucciones') || wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  if (!ws) throw new Error('El archivo no contiene hojas con datos.');
+
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '', blankrows: false });
+  if (!aoa.length) throw new Error('La hoja "' + sheetName + '" está vacía.');
+
+  // Mapear headers → índices de columna
+  const headers = aoa[0].map(h => String(h || '').trim().toLowerCase());
+  const colIdx = {};
+  for (const c of schema.columns) {
+    const i = headers.indexOf(c.header.toLowerCase());
+    if (i === -1 && c.required) {
+      throw new Error(`Falta la columna obligatoria "${c.header}". Descargá la plantilla y respetá los nombres.`);
+    }
+    colIdx[c.key] = i;
+  }
+
+  // Para volver a leer celdas raw (fechas/números) usamos sheet_to_json con header
+  const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: false }).slice(1);
+
+  const valid = [];
+  const errors = [];
+
+  for (let i = 0; i < rawRows.length; i++) {
+    const row = rawRows[i];
+    const excelRow = i + 2; // header está en fila 1
+    // Saltar filas totalmente vacías
+    if (row.every(v => v == null || String(v).trim() === '')) continue;
+
+    const parsed = {};
+    const rowErrors = [];
+
+    for (const c of schema.columns) {
+      const idx = colIdx[c.key];
+      const raw = idx === -1 ? null : row[idx];
+
+      if (raw == null || raw === '') {
+        if (c.required) rowErrors.push(`${c.header}: vacío`);
+        else parsed[c.key] = c.default ?? '';
+        continue;
+      }
+
+      if (c.type === 'string') {
+        parsed[c.key] = String(raw).trim();
+      } else if (c.type === 'number') {
+        const n = parseCellNumber(raw);
+        if (n == null) rowErrors.push(`${c.header}: "${raw}" no es un número válido`);
+        else parsed[c.key] = n;
+      } else if (c.type === 'date') {
+        const d = parseCellDate(raw);
+        if (!d) rowErrors.push(`${c.header}: "${raw}" no es una fecha válida (usá DD/MM/AAAA)`);
+        else parsed[c.key] = d;
+      } else if (c.type === 'enum') {
+        const s = String(raw).trim();
+        if (!c.enum.includes(s)) {
+          rowErrors.push(`${c.header}: "${s}" no está en la lista (${c.enum.slice(0, 4).join(', ')}${c.enum.length > 4 ? '…' : ''})`);
+        } else parsed[c.key] = s;
+      } else if (c.type === 'tipoMov') {
+        const t = parseTipoMov(raw);
+        if (!t) rowErrors.push(`${c.header}: "${raw}" debe ser Ingreso o Egreso`);
+        else parsed[c.key] = t;
+      }
+    }
+
+    // Validación cruzada: en mn, categoría debe pertenecer al lado correcto del tipo
+    if (!rowErrors.length && tabKey === 'mn' && parsed.categoria) {
+      const allowed = CATEGORIAS_MANUALES[parsed.type] || [];
+      if (!allowed.includes(parsed.categoria)) {
+        rowErrors.push(`Categoría "${parsed.categoria}" no es válida para tipo ${parsed.type === 'in' ? 'Ingreso' : 'Egreso'}`);
+      }
+    }
+
+    if (rowErrors.length) {
+      errors.push({ excelRow, msg: rowErrors.join(' • ') });
+    } else {
+      valid.push(schema.toRow(parsed));
+    }
+  }
+
+  return { valid, errors, total: valid.length + errors.length, sheetName };
+}
+
+/* ---------- Insert batch (con modo reemplazo) ---------- */
+
+async function bulkInsert(tabKey, rows, replace) {
+  const m = mappers[tabKey];
+  if (replace) {
+    const del = await sb.from(m.table).delete().eq('user_id', currentUser.id);
+    if (del.error) throw del.error;
+  }
+  if (!rows.length) return { inserted: 0 };
+  // Insert por chunks de 500 (límite razonable para Supabase REST)
+  const CHUNK = 500;
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const slice = rows.slice(i, i + CHUNK).map(r => ({ ...m.toDb(r), user_id: currentUser.id }));
+    const { error, count } = await sb.from(m.table).insert(slice, { count: 'exact' });
+    if (error) throw error;
+    inserted += count ?? slice.length;
+  }
+  return { inserted };
+}
+
+/* ---------- Modal: state + control ---------- */
+
+const importUI = {
+  tab: null,
+  parsed: null, // { valid, errors, total, sheetName }
+};
+
+function openImportModal(tabKey) {
+  const schema = importSchemas[tabKey];
+  importUI.tab = tabKey;
+  importUI.parsed = null;
+  $('importTitle').textContent = `Importar — ${schema.title}`;
+  $('importSub').textContent = `Hoja esperada: "${schema.sheetName}"`;
+  $('importStep1').style.display = '';
+  $('importStep2').style.display = 'none';
+  $('importFile').value = '';
+  $('impReplace').checked = false;
+  $('modeToggleLabel').style.display = 'none';
+  $('importConfirm').disabled = true;
+  $('importConfirm').textContent = 'Importar';
+  $('impErrorsWrap').style.display = 'none';
+  $('impMsg').textContent = '';
+  $('impMsg').className = 'modal-msg info';
+  $('importOverlay').classList.add('open');
+}
+
+function closeImportModal() {
+  $('importOverlay').classList.remove('open');
+  importUI.tab = null;
+  importUI.parsed = null;
+}
+
+async function handleImportFile(file) {
+  if (!file) return;
+  const tab = importUI.tab;
+  $('impMsg').className = 'modal-msg info';
+  $('impMsg').textContent = 'Leyendo archivo...';
+  try {
+    const parsed = await parseImportFile(file, tab);
+    importUI.parsed = parsed;
+    $('importStep1').style.display = 'none';
+    $('importStep2').style.display = '';
+    $('impTotal').textContent = parsed.total;
+    $('impOk').textContent = parsed.valid.length;
+    $('impErr').textContent = parsed.errors.length;
+
+    if (parsed.errors.length) {
+      $('impErrorsWrap').style.display = '';
+      $('impErrorsBody').innerHTML = parsed.errors
+        .slice(0, 200)
+        .map(e => `<tr><td class="err-row">${e.excelRow}</td><td class="err-msg">${escapeHtml(e.msg)}</td></tr>`)
+        .join('') + (parsed.errors.length > 200 ? `<tr><td colspan="2" style="color:var(--muted);text-align:center">… y ${parsed.errors.length - 200} errores más</td></tr>` : '');
+    } else {
+      $('impErrorsWrap').style.display = 'none';
+    }
+
+    $('modeToggleLabel').style.display = '';
+    if (!parsed.valid.length) {
+      $('importConfirm').disabled = true;
+      $('impMsg').className = 'modal-msg err';
+      $('impMsg').textContent = 'No hay filas válidas para importar. Corregí los errores en el Excel y volvé a subirlo.';
+    } else {
+      $('importConfirm').disabled = false;
+      $('impMsg').className = 'modal-msg info';
+      $('impMsg').textContent = parsed.errors.length
+        ? `Se importarán ${parsed.valid.length} filas válidas. Las ${parsed.errors.length} con error se ignoran.`
+        : `Listo para importar ${parsed.valid.length} filas.`;
+    }
+  } catch (e) {
+    console.error('parse error', e);
+    $('impMsg').className = 'modal-msg err';
+    $('impMsg').textContent = e.message || 'No se pudo leer el archivo.';
+  }
+}
+
+async function confirmImport() {
+  if (!importUI.parsed?.valid.length) return;
+  const replace = $('impReplace').checked;
+  const tab = importUI.tab;
+  const btn = $('importConfirm');
+  btn.disabled = true;
+  btn.textContent = replace ? 'Reemplazando...' : 'Importando...';
+  $('impMsg').className = 'modal-msg info';
+  $('impMsg').textContent = 'Subiendo a la base...';
+  try {
+    const { inserted } = await bulkInsert(tab, importUI.parsed.valid, replace);
+    $('impMsg').className = 'modal-msg ok';
+    $('impMsg').textContent = `✓ ${inserted} fila(s) importadas. Actualizando vista...`;
+    await loadAllFromDb();
+    setTimeout(closeImportModal, 800);
+  } catch (e) {
+    console.error('import error', e);
+    $('impMsg').className = 'modal-msg err';
+    $('impMsg').textContent = 'Error al guardar: ' + (e.message || e.code || 'desconocido');
+    btn.disabled = false;
+    btn.textContent = 'Reintentar';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+/* =====================================================================
+   EXPORT EXCEL — workbook con Resumen / Línea de tiempo / Detalle / Diario
+   ===================================================================== */
+
+function applyMoneyFormat(ws, colsToFormat) {
+  if (!ws['!ref']) return;
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let R = range.s.r + 1; R <= range.e.r; R++) {
+    for (const C of colsToFormat) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws[addr];
+      if (cell && typeof cell.v === 'number') cell.z = '"$"#,##0';
+    }
+  }
+}
+
+function exportCashFlowExcel() {
+  const wb = XLSX.utils.book_new();
+  const series = buildSeries();
+  const totIn = series.ingArr.reduce((s, v) => s + v, 0);
+  const totOut = series.egrArr.reduce((s, v) => s - v, 0); // egrArr está como negativo
+  const ini = totalInicial();
+  const fin = ini + totIn - totOut;
+  const bucketName = { day: 'Diaria', week: 'Semanal', month: 'Mensual' }[state.ui.bucket] || state.ui.bucket;
+
+  // 1) Resumen
+  const resumen = [
+    ['Cash Flow — Reporte de Proyección'],
+    ['Generado', toISO(new Date())],
+    ['Ventana hasta', state.ui.endDate],
+    ['Vista', bucketName],
+    [],
+    ['KPIs'],
+    ['Saldo inicial', ini],
+    ['Ingresos proyectados', totIn],
+    ['Egresos proyectados', totOut],
+    ['Saldo final proyectado', fin],
+    [],
+    ['Saldos por cuenta'],
+    ['Cuenta', 'Tipo', 'Saldo'],
+    ...state.balances.map(b => [b.label || '', b.tipo || 'otro', Number(b.amount) || 0]),
+  ];
+  const wsRes = XLSX.utils.aoa_to_sheet(resumen);
+  wsRes['!cols'] = [{ wch: 32 }, { wch: 16 }, { wch: 16 }];
+  applyMoneyFormat(wsRes, [1, 2]);
+  XLSX.utils.book_append_sheet(wb, wsRes, 'Resumen');
+
+  // 2) Línea de tiempo (combina histórico real + proyección futura)
+  const view = buildCombinedView();
+  const timeline = [
+    ['Período', 'Ingresos', 'Egresos', 'Posición', 'Saldo real', 'Saldo proyectado'],
+    ...view.labels.map((lbl, i) => {
+      const inc = view.ingArr[i];
+      const egr = -view.egrArr[i];
+      return [lbl, inc, egr, inc - egr, view.histAccum[i] ?? '', view.proyAccum[i] ?? ''];
+    }),
+  ];
+  const wsTL = XLSX.utils.aoa_to_sheet(timeline);
+  wsTL['!cols'] = [{ wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 20 }];
+  applyMoneyFormat(wsTL, [1, 2, 3, 4, 5]);
+  XLSX.utils.book_append_sheet(wb, wsTL, 'Línea de tiempo');
+
+  // 3) Detalle de movimientos individuales
+  const detalle = [
+    ['Fecha vencimiento', 'Fecha real', 'Estado', 'Dirección', 'Fuente', 'Detalle', 'Categoría', 'Importe'],
+    ...collectMovements()
+      .filter(m => m.date && m.date <= state.ui.endDate)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(m => {
+        const venc = m.kind === 'real' ? (m.vencOriginal || '') : m.date;
+        const real = m.kind === 'real' ? m.date : '';
+        const estado = m.kind === 'real' ? 'Cobrado/Pagado' : 'Pendiente';
+        return [
+          venc,
+          real,
+          estado,
+          m.dir === 'in' ? 'Ingreso' : 'Egreso',
+          m.source,
+          m.desc || '',
+          m.categoria || '',
+          Number(m.amount) || 0,
+        ];
+      }),
+  ];
+  const wsDet = XLSX.utils.aoa_to_sheet(detalle);
+  wsDet['!cols'] = [{ wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 32 }, { wch: 22 }, { wch: 16 }];
+  applyMoneyFormat(wsDet, [7]);
+  XLSX.utils.book_append_sheet(wb, wsDet, 'Detalle');
+
+  // 4) Saldo diario (granularidad fina, incluye días sin movimiento)
+  const daily = computeDailyAcc();
+  const diaria = [
+    ['Fecha', 'Ingresos', 'Egresos', 'Neto del día', 'Saldo acumulado'],
+    ...daily.map(d => [d.date, d.ingresos, d.egresos, d.ingresos - d.egresos, d.acc]),
+  ];
+  const wsDia = XLSX.utils.aoa_to_sheet(diaria);
+  wsDia['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 18 }];
+  applyMoneyFormat(wsDia, [1, 2, 3, 4]);
+  XLSX.utils.book_append_sheet(wb, wsDia, 'Saldo diario');
+
+  const filename = `cashflow_${toISO(new Date())}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
+/* Delegación global para botones de plantilla/import (renderizados dinámicamente). */
+document.addEventListener('click', (e) => {
+  const tpl = e.target.closest('[data-tpl]');
+  if (tpl) { downloadTemplate(tpl.dataset.tpl); return; }
+  const imp = e.target.closest('[data-imp]');
+  if (imp) { openImportModal(imp.dataset.imp); return; }
+});
+
+/* =====================================================================
+   WIZARD — cargar movimientos manuales en cuotas
+   ===================================================================== */
+
+const WIZARD_PRESETS = {
+  afip:     { categoria: 'Planes AFIP',  medio: 'AFIP',    tipo: 'out', period: 'month',    nombre: 'Plan AFIP ',        cuotas: 12 },
+  prestamo: { categoria: 'Préstamos',    medio: 'NACION',  tipo: 'out', period: 'month',    nombre: 'Préstamo ',         cuotas: 48 },
+  sueldo:   { categoria: 'Sueldos Banco', medio: 'BNA',    tipo: 'out', period: 'biweekly', nombre: 'Sueldos quincena ', cuotas: 24 },
+  otro:     { categoria: 'Otros egresos', medio: '',       tipo: 'out', period: 'month',    nombre: '',                  cuotas: 12 },
+};
+
+let wizardPreset = 'afip';
+
+function fillWizardCategorias(tipo) {
+  const sel = $('wzCategoria');
+  const opts = CATEGORIAS_MANUALES[tipo] || [];
+  const cur = sel.value;
+  sel.innerHTML = opts.map(c => `<option value="${c}">${c}</option>`).join('');
+  if (opts.includes(cur)) sel.value = cur;
+}
+
+function applyWizardPreset(name) {
+  wizardPreset = name;
+  const p = WIZARD_PRESETS[name];
+  if (!p) return;
+  document.querySelectorAll('.wiz-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.preset === name);
+  });
+  $('wzTipo').value = p.tipo;
+  fillWizardCategorias(p.tipo);
+  $('wzCategoria').value = p.categoria;
+  $('wzMedio').value = p.medio;
+  $('wzPeriod').value = p.period;
+  $('wzCantidad').value = p.cuotas;
+  if (!$('wzGrupo').value) $('wzGrupo').value = p.nombre;
+  refreshWizardPreview();
+}
+
+function advanceDate(dt, period, periodDays) {
+  const next = new Date(dt);
+  if (period === 'month') {
+    const original = next.getDate();
+    next.setMonth(next.getMonth() + 1);
+    // setMonth con día > días del mes destino hace overflow; corregimos
+    if (next.getDate() < original) next.setDate(0); // último día del mes anterior (= correcto)
+  } else if (period === 'biweekly') {
+    next.setDate(next.getDate() + 15);
+  } else if (period === 'weekly') {
+    next.setDate(next.getDate() + 7);
+  } else {
+    next.setDate(next.getDate() + (periodDays || 30));
+  }
+  return next;
+}
+
+function buildWizardCuotas() {
+  const grupo    = $('wzGrupo').value.trim();
+  const tipo     = $('wzTipo').value;
+  const categoria= $('wzCategoria').value;
+  const medio    = $('wzMedio').value.trim();
+  const cantidad = Math.max(0, Math.min(240, parseInt($('wzCantidad').value, 10) || 0));
+  const fecha0   = $('wzFecha').value;
+  const period   = $('wzPeriod').value;
+  const periodDays = parseInt($('wzPeriodDays').value, 10) || 30;
+  const importe0 = parseAR($('wzImporte').value);
+  const delta    = parseAR($('wzDelta').value);
+
+  const errors = [];
+  if (!grupo) errors.push('Falta nombre del grupo.');
+  if (!cantidad) errors.push('Cantidad de cuotas debe ser > 0.');
+  if (!fecha0) errors.push('Falta fecha de la primera cuota.');
+  if (!importe0) errors.push('Falta importe de la primera cuota.');
+  if (errors.length) return { errors, cuotas: [] };
+
+  const cuotas = [];
+  let dt = new Date(fecha0 + 'T00:00:00');
+  for (let i = 1; i <= cantidad; i++) {
+    const importe = Math.max(0, Math.round(importe0 - delta * (i - 1)));
+    cuotas.push({
+      desc: `${grupo} (cuota ${i}/${cantidad})`,
+      type: tipo,
+      categoria,
+      date: toISO(dt),
+      amount: importe,
+      grupoId: grupo,
+      cuotaNro: i,
+      cuotaTotal: cantidad,
+      medio: medio || '',
+    });
+    dt = advanceDate(dt, period, periodDays);
+  }
+  return { errors: [], cuotas };
+}
+
+function refreshWizardPreview() {
+  const root = $('wzPreview');
+  const msg  = $('wzMsg');
+  $('wzPeriodDaysField').style.display = $('wzPeriod').value === 'days' ? '' : 'none';
+
+  const { errors, cuotas } = buildWizardCuotas();
+  if (errors.length) {
+    root.innerHTML = `<div class="wiz-empty">Completá los campos para ver la vista previa.</div>`;
+    msg.style.display = 'block';
+    msg.className = 'modal-msg info';
+    msg.textContent = errors.join(' ');
+    $('wizardConfirm').disabled = true;
+    return;
+  }
+  msg.style.display = 'none';
+  $('wizardConfirm').disabled = false;
+
+  const total = cuotas.reduce((s, c) => s + c.amount, 0);
+  const sample = cuotas.length > 6
+    ? [...cuotas.slice(0, 3), null, ...cuotas.slice(-2)]
+    : cuotas;
+
+  root.innerHTML = `
+    <table>
+      <thead><tr><th>Cuota</th><th>Fecha</th><th style="text-align:right">Importe</th></tr></thead>
+      <tbody>
+        ${sample.map(c => c === null
+          ? `<tr><td colspan="3" class="dots">…</td></tr>`
+          : `<tr><td>${c.cuotaNro}/${c.cuotaTotal}</td><td>${formatARDate(c.date)}</td><td class="amt">${fmt(c.amount)}</td></tr>`).join('')}
+      </tbody>
+      <tfoot>
+        <tr><td colspan="2"><strong>Total ${cuotas.length} cuotas</strong></td><td class="amt"><strong>${fmt(total)}</strong></td></tr>
+      </tfoot>
+    </table>
+  `;
+}
+
+function openWizardModal() {
+  $('wizardOverlay').classList.add('open');
+  if (!$('wzFecha').value) $('wzFecha').value = toISO(today);
+  applyWizardPreset(wizardPreset || 'afip');
+}
+
+function closeWizardModal() {
+  $('wizardOverlay').classList.remove('open');
+}
+
+async function confirmWizard() {
+  const { errors, cuotas } = buildWizardCuotas();
+  if (errors.length) return;
+  const btn = $('wizardConfirm');
+  const msg = $('wzMsg');
+  btn.disabled = true;
+  btn.textContent = 'Generando...';
+  try {
+    const m = mappers.mn;
+    const payloads = cuotas.map(c => ({ ...m.toDb(c), user_id: currentUser.id }));
+    const { error } = await sb.from(m.table).insert(payloads);
+    if (error) throw error;
+    await loadAllFromDb();
+    msg.style.display = 'block';
+    msg.className = 'modal-msg ok';
+    msg.textContent = `✓ ${cuotas.length} cuotas generadas. Cerrando...`;
+    setTimeout(() => {
+      closeWizardModal();
+      state.ui.tab = 'mn';
+      renderTab();
+      recompute();
+    }, 700);
+  } catch (e) {
+    console.error('wizard error', e);
+    msg.style.display = 'block';
+    msg.className = 'modal-msg err';
+    msg.textContent = 'Error al guardar: ' + (e.message || e.code || 'desconocido');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generar cuotas';
+  }
+}
 
 /* =====================================================================
    AUTH
@@ -1193,72 +2356,92 @@ async function addBalance() {
    RENDER: Tablas (tabs)
    ===================================================================== */
 
+const pagadoCellHTML = (it, i, t) => `
+  <td class="pagado-cell">
+    <label>
+      <input type="checkbox" data-k="pagadoAt" data-i="${i}" data-t="${t}" ${it.pagadoAt ? 'checked' : ''} />
+      ${it.pagadoAt
+        ? `<input type="date" class="pagado-date" value="${it.pagadoAt}" data-k="pagadoAt" data-i="${i}" data-t="${t}" />`
+        : '<span class="pagado-lbl">Pendiente</span>'}
+    </label>
+  </td>
+`;
+
 const tabConfigs = {
   ar: {
     title: 'Cuentas por cobrar (facturas de venta pendientes)',
-    cols: ['Factura', 'Cliente', 'Emisión', 'Vencimiento', 'Importe', ''],
+    cols: ['Factura', 'Cliente', 'Emisión', 'Vencimiento', 'Importe', 'Cobrado', ''],
     rowHTML: (it, i) => `
       <td><input value="${it.numero || ''}" data-k="numero" data-i="${i}" data-t="ar" style="width: 90px;" /></td>
       <td><input value="${it.cliente || ''}" data-k="cliente" data-i="${i}" data-t="ar" /></td>
       <td><input type="date" value="${it.emision || ''}" data-k="emision" data-i="${i}" data-t="ar" /></td>
       <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="ar" /></td>
       <td class="amount income"><input type="text" inputmode="numeric" class="money" value="${fmtNum(it.importe)}" data-k="importe" data-i="${i}" data-t="ar" style="text-align:right;" /></td>
+      ${pagadoCellHTML(it, i, 'ar')}
       <td><button class="danger" data-del="ar" data-i="${i}">×</button></td>
     `,
-    blank: () => ({ numero: 'S/N', cliente: '', emision: '', venc: d(7), importe: 0 }),
+    blank: () => ({ numero: 'S/N', cliente: '', emision: '', venc: d(7), importe: 0, pagadoAt: '' }),
     canAdd: true,
     addLabel: '+ Agregar cuenta por cobrar',
   },
   cr: {
     title: 'Cheques recibidos en cartera',
-    cols: ['Cheque', 'Cliente', 'Banco', 'Vencimiento', 'Importe', ''],
+    cols: ['Cheque', 'Cliente', 'Banco', 'Vencimiento', 'Importe', 'Cobrado', ''],
     rowHTML: (it, i) => `
       <td><input value="${it.numero || ''}" data-k="numero" data-i="${i}" data-t="cr" style="width: 90px;" /></td>
       <td><input value="${it.cliente || ''}" data-k="cliente" data-i="${i}" data-t="cr" /></td>
       <td><input value="${it.banco || ''}" data-k="banco" data-i="${i}" data-t="cr" /></td>
       <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="cr" /></td>
       <td class="amount income"><input type="text" inputmode="numeric" class="money" value="${fmtNum(it.importe)}" data-k="importe" data-i="${i}" data-t="cr" style="text-align:right;" /></td>
+      ${pagadoCellHTML(it, i, 'cr')}
       <td><button class="danger" data-del="cr" data-i="${i}">×</button></td>
     `,
-    blank: () => ({ numero: 'CR-', cliente: '', banco: '', venc: d(7), importe: 0 }),
+    blank: () => ({ numero: 'CR-', cliente: '', banco: '', venc: d(7), importe: 0, pagadoAt: '' }),
     canAdd: true,
     addLabel: '+ Agregar cheque recibido',
   },
   ap: {
     title: 'Cuentas por pagar (facturas de compra pendientes)',
-    cols: ['Factura', 'Proveedor', 'Vencimiento', 'Importe', ''],
+    cols: ['Factura', 'Proveedor', 'Vencimiento', 'Importe', 'Pagado', ''],
     rowHTML: (it, i) => `
       <td><input value="${it.numero || ''}" data-k="numero" data-i="${i}" data-t="ap" style="width: 90px;" /></td>
       <td><input value="${it.proveedor || ''}" data-k="proveedor" data-i="${i}" data-t="ap" /></td>
       <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="ap" /></td>
       <td class="amount expense"><input type="text" inputmode="numeric" class="money" value="${fmtNum(it.importe)}" data-k="importe" data-i="${i}" data-t="ap" style="text-align:right;" /></td>
+      ${pagadoCellHTML(it, i, 'ap')}
       <td><button class="danger" data-del="ap" data-i="${i}">×</button></td>
     `,
-    blank: () => ({ numero: 'S/N', proveedor: '', venc: d(7), importe: 0 }),
+    blank: () => ({ numero: 'S/N', proveedor: '', venc: d(7), importe: 0, pagadoAt: '' }),
     canAdd: true,
     addLabel: '+ Agregar cuenta por pagar',
   },
   ce: {
     title: 'Cheques emitidos pendientes de débito',
-    cols: ['Cheque', 'Proveedor', 'Vencimiento', 'Importe', ''],
+    cols: ['Cheque', 'Proveedor', 'Vencimiento', 'Importe', 'Debitado', ''],
     rowHTML: (it, i) => `
       <td><input value="${it.numero || ''}" data-k="numero" data-i="${i}" data-t="ce" style="width: 90px;" /></td>
       <td><input value="${it.proveedor || ''}" data-k="proveedor" data-i="${i}" data-t="ce" /></td>
       <td><input type="date" value="${it.venc}" data-k="venc" data-i="${i}" data-t="ce" /></td>
       <td class="amount expense"><input type="text" inputmode="numeric" class="money" value="${fmtNum(it.importe)}" data-k="importe" data-i="${i}" data-t="ce" style="text-align:right;" /></td>
+      ${pagadoCellHTML(it, i, 'ce')}
       <td><button class="danger" data-del="ce" data-i="${i}">×</button></td>
     `,
-    blank: () => ({ numero: 'CE-', proveedor: '', venc: d(7), importe: 0 }),
+    blank: () => ({ numero: 'CE-', proveedor: '', venc: d(7), importe: 0, pagadoAt: '' }),
     canAdd: true,
     addLabel: '+ Agregar cheque emitido',
   },
   mn: {
     title: 'Movimientos manuales (sueldos, impuestos, préstamos, etc.)',
-    cols: ['Concepto', 'Categoría', 'Tipo', 'Fecha', 'Importe', ''],
+    cols: ['Concepto', 'Grupo', 'Cuota', 'Categoría', 'Tipo', 'Fecha', 'Medio', 'Importe', ''],
     rowHTML: (it, i) => {
       const opts = CATEGORIAS_MANUALES[it.type || 'out'] || [];
+      const cuotaTxt = (it.cuotaNro && it.cuotaTotal)
+        ? `${it.cuotaNro}/${it.cuotaTotal}`
+        : (it.cuotaNro ? String(it.cuotaNro) : '');
       return `
-      <td><input value="${it.desc || ''}" data-k="desc" data-i="${i}" data-t="mn" /></td>
+      <td><input value="${escapeHtml(it.desc || '')}" data-k="desc" data-i="${i}" data-t="mn" /></td>
+      <td><input value="${escapeHtml(it.grupoId || '')}" data-k="grupoId" data-i="${i}" data-t="mn" placeholder="—" style="width: 130px;" /></td>
+      <td><span class="cuota-tag">${cuotaTxt || '—'}</span></td>
       <td>
         <select data-k="categoria" data-i="${i}" data-t="mn">
           <option value=""${!it.categoria ? ' selected' : ''}>—</option>
@@ -1267,11 +2450,12 @@ const tabConfigs = {
       </td>
       <td><span class="badge ${it.type}">${it.type === 'in' ? 'Ingreso' : 'Egreso'}</span></td>
       <td><input type="date" value="${it.date}" data-k="date" data-i="${i}" data-t="mn" /></td>
+      <td><input value="${escapeHtml(it.medio || '')}" data-k="medio" data-i="${i}" data-t="mn" placeholder="—" style="width: 90px;" /></td>
       <td class="amount ${it.type === 'in' ? 'income' : 'expense'}"><input type="text" inputmode="numeric" class="money" value="${fmtNum(it.amount)}" data-k="amount" data-i="${i}" data-t="mn" style="text-align:right;" /></td>
       <td><button class="danger" data-del="mn" data-i="${i}">×</button></td>
     `;
     },
-    blank: () => ({ desc: '', type: 'out', categoria: 'Otros egresos', date: d(7), amount: 0 }),
+    blank: () => ({ desc: '', type: 'out', categoria: 'Otros egresos', date: d(7), amount: 0, grupoId: '', cuotaNro: null, cuotaTotal: null, medio: '' }),
     canAdd: true,
     addLabel: '+ Agregar movimiento manual',
   },
@@ -1288,16 +2472,27 @@ function renderTab() {
     ? `<button id="tabAdd" class="ghost" style="margin-top: 14px;">${cfg.addLabel}</button>`
     : '';
 
+  const toolbar = `
+    <div class="data-toolbar">
+      <div class="left">${cfg.title}${data.length ? ` — ${data.length} registro(s)` : ''}</div>
+      <div class="right">
+        <button class="ghost" data-tpl="${tab}">↓ Descargar plantilla</button>
+        <button class="ghost" data-imp="${tab}">↑ Importar Excel</button>
+      </div>
+    </div>
+  `;
+
   if (!data.length) {
     root.innerHTML = `
+      ${toolbar}
       <div class="empty">Sin registros para mostrar.</div>
       ${addBtn}
     `;
   } else {
     const head = cfg.cols.map(c => `<th>${c}</th>`).join('');
-    const body = data.map((it, i) => `<tr>${cfg.rowHTML(it, i)}</tr>`).join('');
+    const body = data.map((it, i) => `<tr${it.pagadoAt ? ' class="paid-row"' : ''}>${cfg.rowHTML(it, i)}</tr>`).join('');
     root.innerHTML = `
-      <div style="font-size: 12px; color: var(--muted); margin-bottom: 10px;">${cfg.title} — ${data.length} registro(s)</div>
+      ${toolbar}
       <div class="table-wrap">
         <table>
           <thead><tr>${head}</tr></thead>
@@ -1310,6 +2505,14 @@ function renderTab() {
 
   const onFieldChange = e => {
     const t = e.target.dataset.t, i = +e.target.dataset.i, k = e.target.dataset.k;
+    if (e.target.type === 'checkbox') {
+      const cur = state[t][i][k];
+      state[t][i][k] = e.target.checked ? (cur || toISO(today)) : '';
+      persistRow(t, state[t][i]).catch(err => console.error('persist pagadoAt', err));
+      renderTab();
+      recompute();
+      return;
+    }
     let v;
     if (e.target.classList.contains('money')) v = liveFormatMoney(e.target);
     else if (e.target.type === 'number') v = Number(e.target.value) || 0;
@@ -1319,7 +2522,8 @@ function renderTab() {
     debouncedPersist(t, state[t][i]);
   };
   root.querySelectorAll('input[data-k]').forEach(inp => {
-    inp.addEventListener('input', onFieldChange);
+    const evt = inp.type === 'checkbox' ? 'change' : 'input';
+    inp.addEventListener(evt, onFieldChange);
   });
   root.querySelectorAll('select[data-k]').forEach(sel => sel.addEventListener('change', onFieldChange));
 
@@ -1371,21 +2575,33 @@ function bucketLabel(key, bucket) {
 
 function collectMovements() {
   const mv = [];
-  state.ar.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'in',  source: 'CxC' }));
-  state.cr.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'in',  source: 'Cheque' }));
-  state.ap.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'out', source: 'CxP' }));
-  state.ce.forEach(x => x.venc && mv.push({ date: x.venc, amount: x.importe, dir: 'out', source: 'Cheque' }));
+  const addPagable = (x, dir, source) => {
+    if (x.pagadoAt) {
+      mv.push({ date: x.pagadoAt, amount: x.importe, dir, source, kind: 'real', vencOriginal: x.venc || null });
+    } else if (x.venc) {
+      mv.push({ date: x.venc, amount: x.importe, dir, source, kind: 'proy' });
+    }
+  };
+  state.ar.forEach(x => addPagable(x, 'in',  'CxC'));
+  state.cr.forEach(x => addPagable(x, 'in',  'Cheque'));
+  state.ap.forEach(x => addPagable(x, 'out', 'CxP'));
+  state.ce.forEach(x => addPagable(x, 'out', 'Cheque'));
   state.mn.forEach(x => x.date && mv.push({
     date: x.date, amount: x.amount, dir: x.type,
-    source: 'Manual', categoria: x.categoria || 'Otros', desc: x.desc,
+    source: 'Manual', categoria: x.categoria || 'Otros', desc: x.desc, kind: 'proy',
   }));
   return mv;
 }
 
+/* Proyección a futuro: items proy con fecha >= hoy. Items proy vencidos (no cobrados) se
+   reubican al bucket de hoy para que pesen como "atrasados" en lugar de quedar invisibles. */
 function buildSeries() {
   const bucket = state.ui.bucket;
   const end = state.ui.endDate;
-  const movs = collectMovements().filter(m => m.date <= end);
+  const todayISO_ = toISO(today);
+  const movs = collectMovements()
+    .filter(m => m.kind === 'proy' && m.date <= end)
+    .map(m => m.date < todayISO_ ? { ...m, date: todayISO_, atrasado: true } : m);
   const keys = new Set();
   movs.forEach(m => keys.add(bucketKey(m.date, bucket)));
   const sorted = [...keys].sort();
@@ -1413,33 +2629,113 @@ function buildSeries() {
   return { labels, ingArr, egrArr, accum, sortedKeys: sorted, movs };
 }
 
+/* Reconstrucción histórica de los últimos 30 días: items con pagado_at <= hoy.
+   Como el saldo actual ya incluye esos movimientos, partimos del saldo retroactivo
+   (saldo actual − neto real) y vamos sumando hacia adelante hasta llegar de nuevo
+   al saldo actual en el bucket "hoy". */
+function buildHistoricalSeries() {
+  const HIST_DAYS = 30;
+  const bucket = state.ui.bucket;
+  const startDt = new Date(today);
+  startDt.setDate(startDt.getDate() - HIST_DAYS);
+  const startISO = toISO(startDt);
+  const todayISO_ = toISO(today);
+  const movs = collectMovements().filter(m => m.kind === 'real' && m.date >= startISO && m.date <= todayISO_);
+  if (!movs.length) return { sortedKeys: [], ingArr: [], egrArr: [], accum: [] };
+
+  const keys = new Set([bucketKey(todayISO_, bucket)]);
+  movs.forEach(m => keys.add(bucketKey(m.date, bucket)));
+  const sorted = [...keys].sort();
+
+  const ingresos = {}, egresos = {};
+  sorted.forEach(k => { ingresos[k] = 0; egresos[k] = 0; });
+  movs.forEach(m => {
+    const k = bucketKey(m.date, bucket);
+    if (m.dir === 'in') ingresos[k] += m.amount;
+    else egresos[k] += m.amount;
+  });
+
+  const netReal = sorted.reduce((s, k) => s + ingresos[k] - egresos[k], 0);
+  let acc = totalInicial() - netReal;
+  const accum = [], ingArr = [], egrArr = [];
+  sorted.forEach(k => {
+    acc += ingresos[k] - egresos[k];
+    accum.push(acc);
+    ingArr.push(ingresos[k]);
+    egrArr.push(-egresos[k]);
+  });
+  return { sortedKeys: sorted, ingArr, egrArr, accum };
+}
+
+/* Vista combinada: histórico + proyección sobre el mismo eje de labels, con nulls
+   en los buckets donde el respectivo dataset no tiene valor. Las barras de ingresos
+   y egresos se muestran combinadas (un valor por bucket). */
+function buildCombinedView() {
+  const proy = buildSeries();
+  const hist = buildHistoricalSeries();
+  const bucket = state.ui.bucket;
+  const set = new Set();
+  const merged = [];
+  hist.sortedKeys.forEach(k => { if (!set.has(k)) { merged.push(k); set.add(k); } });
+  proy.sortedKeys.forEach(k => { if (!set.has(k)) { merged.push(k); set.add(k); } });
+  merged.sort();
+
+  const labels = merged.map(k => bucketLabel(k, bucket));
+  const histIdx = Object.fromEntries(hist.sortedKeys.map((k, i) => [k, i]));
+  const proyIdx = Object.fromEntries(proy.sortedKeys.map((k, i) => [k, i]));
+  const histAccum = [], proyAccum = [], ingArr = [], egrArr = [];
+  merged.forEach(k => {
+    const hI = histIdx[k] ?? -1;
+    const pI = proyIdx[k] ?? -1;
+    histAccum.push(hI >= 0 ? hist.accum[hI] : null);
+    proyAccum.push(pI >= 0 ? proy.accum[pI] : null);
+    const hIn = hI >= 0 ? hist.ingArr[hI] : 0;
+    const pIn = pI >= 0 ? proy.ingArr[pI] : 0;
+    const hEg = hI >= 0 ? hist.egrArr[hI] : 0;
+    const pEg = pI >= 0 ? proy.egrArr[pI] : 0;
+    ingArr.push(hIn + pIn);
+    egrArr.push(hEg + pEg);
+  });
+  return { labels, sortedKeys: merged, histAccum, proyAccum, ingArr, egrArr };
+}
+
 /* =====================================================================
    CHART
    ===================================================================== */
 
 let chart;
-function renderChart(series) {
+function renderChart(_unused) {
+  const view = buildCombinedView();
   const ctx = $('cashChart').getContext('2d');
   const data = {
-    labels: series.labels,
+    labels: view.labels,
     datasets: [
       {
-        type: 'bar', label: 'Ingresos', data: series.ingArr,
+        type: 'bar', label: 'Ingresos', data: view.ingArr,
         backgroundColor: 'rgba(0, 166, 80, 0.78)',
         borderRadius: 3, stack: 'mov', yAxisID: 'y',
       },
       {
-        type: 'bar', label: 'Egresos', data: series.egrArr,
+        type: 'bar', label: 'Egresos', data: view.egrArr,
         backgroundColor: 'rgba(230, 57, 70, 0.78)',
         borderRadius: 3, stack: 'mov', yAxisID: 'y',
       },
       {
-        type: 'line', label: 'Saldo acumulado', data: series.accum,
+        type: 'line', label: 'Saldo real (ejecutado)', data: view.histAccum,
+        borderColor: '#8a9b91',
+        backgroundColor: 'rgba(138, 155, 145, 0.10)',
+        borderDash: [6, 4],
+        tension: 0.28, fill: false, pointRadius: 3, pointHoverRadius: 5,
+        pointBackgroundColor: '#8a9b91', pointBorderColor: '#0c1410', pointBorderWidth: 1.5,
+        borderWidth: 2, yAxisID: 'y2', spanGaps: false,
+      },
+      {
+        type: 'line', label: 'Saldo proyectado', data: view.proyAccum,
         borderColor: '#f36e22',
         backgroundColor: 'rgba(243, 110, 34, 0.14)',
         tension: 0.28, fill: true, pointRadius: 3.5, pointHoverRadius: 6,
         pointBackgroundColor: '#f36e22', pointBorderColor: '#0c1410', pointBorderWidth: 2,
-        borderWidth: 2.5, yAxisID: 'y2',
+        borderWidth: 2.5, yAxisID: 'y2', spanGaps: false,
       },
     ],
   };
@@ -1479,6 +2775,44 @@ function renderChart(series) {
 }
 
 /* =====================================================================
+   SALDO DIARIO  (granularidad fina para detectar primer cruce a negativo)
+   ===================================================================== */
+
+function computeDailyAcc() {
+  const start = toISO(today);
+  const end = state.ui.endDate;
+  // Sólo proyección a futuro. Atrasados se reubican al día de hoy.
+  const movs = collectMovements()
+    .filter(m => m.kind === 'proy' && m.date <= end)
+    .map(m => m.date < start ? { ...m, date: start } : m);
+  const perDay = {};
+  movs.forEach(m => {
+    if (!m.date) return;
+    if (!perDay[m.date]) perDay[m.date] = { in: 0, out: 0 };
+    if (m.dir === 'in') perDay[m.date].in += m.amount;
+    else perDay[m.date].out += m.amount;
+  });
+  const out = [];
+  let acc = totalInicial();
+  const cur = new Date(today);
+  const endDt = new Date(end + 'T00:00:00');
+  while (cur <= endDt) {
+    const iso = toISO(cur);
+    const dia = perDay[iso] || { in: 0, out: 0 };
+    acc += dia.in - dia.out;
+    out.push({ date: iso, ingresos: dia.in, egresos: dia.out, acc });
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+function formatARDate(iso) {
+  if (!iso) return '';
+  const dt = new Date(iso + 'T00:00:00');
+  return dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/* =====================================================================
    ALERTAS
    ===================================================================== */
 
@@ -1494,7 +2828,27 @@ function renderAlerts(series) {
   const minVal = series.accum.length ? Math.min(...series.accum, totalInicial()) : totalInicial();
   const maxVal = series.accum.length ? Math.max(...series.accum, totalInicial()) : totalInicial();
 
+  const daily = computeDailyAcc();
+  let firstNegDay = null;
+  let prevDay = totalInicial();
+  for (const dia of daily) {
+    if (dia.acc < 0 && prevDay >= 0) { firstNegDay = dia; break; }
+    prevDay = dia.acc;
+  }
+  const minDay = daily.length
+    ? daily.reduce((mn, dia) => dia.acc < mn.acc ? dia : mn, daily[0])
+    : null;
+
   let html = '';
+  if (firstNegDay) {
+    html += `<div class="alert">
+      <div class="alert-title">⚠ Primer día de faltante</div>
+      El saldo cruza a negativo el <strong>${formatARDate(firstNegDay.date)}</strong> (saldo ${fmt(firstNegDay.acc)}).
+      ${minDay && minDay.date !== firstNegDay.date && minDay.acc < firstNegDay.acc
+        ? ` Mínimo proyectado el <strong>${formatARDate(minDay.date)}</strong> (${fmt(minDay.acc)}).`
+        : ''}
+    </div>`;
+  }
   if (minVal < 0) {
     html += `<div class="alert">
       <div class="alert-title">⚠ Posible faltante de caja proyectado</div>
@@ -1546,7 +2900,12 @@ function renderPivot() {
   const end = state.ui.endDate;
   const showEmpty = state.ui.pivotShowEmpty;
 
-  const allMovs = collectMovements().filter(m => m.date && m.date <= end);
+  // Pivote sólo proyección a futuro (items con pagado_at ya están en saldo inicial).
+  // Atrasados sin cobrar se reubican al bucket de hoy para que pesen visualmente.
+  const todayISO_pivot = toISO(today);
+  const allMovs = collectMovements()
+    .filter(m => m.kind === 'proy' && m.date && m.date <= end)
+    .map(m => m.date < todayISO_pivot ? { ...m, date: todayISO_pivot, atrasado: true } : m);
 
   const keysSet = new Set();
   allMovs.forEach(m => keysSet.add(bucketKey(m.date, bucket)));
@@ -1557,17 +2916,19 @@ function renderPivot() {
     return;
   }
 
-  const todayISO = today.toISOString().slice(0, 10);
+  const todayISO = toISO(today);
   const todayKey = bucketKey(todayISO, bucket);
 
   // Disponibilidades agrupadas por tipo (caja / banco / plazo_fijo / wallet / otro)
   // para mostrar saldo inicial desglosado, como hace el Excel de referencia.
   const tipoLabel = {
     caja: 'Caja / Efectivo',
+    banco: 'Bancos',
     banco_cc: 'Bancos (cuenta corriente)',
     banco_ca: 'Bancos (caja de ahorro)',
-    plazo_fijo: 'Plazos fijos / Inversiones',
+    mp: 'Wallets / Mercado Pago',
     wallet: 'Wallets / Mercado Pago',
+    plazo_fijo: 'Plazos fijos / Inversiones',
     otro: 'Otras disponibilidades',
   };
   const saldoPorTipo = {};
@@ -1575,12 +2936,16 @@ function renderPivot() {
     const t = b.tipo || 'otro';
     saldoPorTipo[t] = (saldoPorTipo[t] || 0) + (Number(b.amount) || 0);
   });
+  const tiposPresentes = [
+    ...TIPO_CUENTA_ORDEN.filter(t => saldoPorTipo[t] !== undefined),
+    ...Object.keys(saldoPorTipo).filter(t => !TIPO_CUENTA_ORDEN.includes(t)),
+  ];
 
   const rows = [
     { type: 'section', label: 'DISPONIBILIDADES (saldo al inicio)' },
-    ...Object.entries(saldoPorTipo)
-      .filter(([_, v]) => v !== 0 || showEmpty)
-      .map(([tipo, val]) => ({ type: 'static', label: tipoLabel[tipo] || tipo, cls: 'section-disponib', value: val })),
+    ...tiposPresentes
+      .filter(t => saldoPorTipo[t] !== 0 || showEmpty)
+      .map(t => ({ type: 'static', label: tipoLabel[t] || t, cls: 'section-disponib', value: saldoPorTipo[t] })),
 
     { type: 'section', label: 'INGRESOS' },
     { type: 'data', label: 'Cuentas por cobrar',  cls: 'section-cobros', match: m => m.dir === 'in'  && m.source === 'CxC' },
@@ -1877,7 +3242,65 @@ $('syncBtn').addEventListener('click', async () => {
   }
 });
 
+$('exportBtn').addEventListener('click', () => {
+  const btn = $('exportBtn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Generando...';
+  try {
+    exportCashFlowExcel();
+    btn.textContent = '✓ Descargado';
+  } catch (e) {
+    console.error('export error', e);
+    btn.textContent = '✗ Error';
+  } finally {
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+  }
+});
+
 $('logoutBtn').addEventListener('click', logout);
+
+/* ----- Import modal: wiring ----- */
+$('importClose').addEventListener('click', closeImportModal);
+$('importCancel').addEventListener('click', closeImportModal);
+$('importOverlay').addEventListener('click', (e) => {
+  if (e.target === $('importOverlay')) closeImportModal();
+});
+$('importConfirm').addEventListener('click', confirmImport);
+$('importFile').addEventListener('change', (e) => {
+  const f = e.target.files?.[0];
+  if (f) handleImportFile(f);
+});
+const dz = $('dropzone');
+['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => {
+  e.preventDefault(); e.stopPropagation(); dz.classList.add('drag');
+}));
+['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => {
+  e.preventDefault(); e.stopPropagation(); dz.classList.remove('drag');
+}));
+dz.addEventListener('drop', e => {
+  const f = e.dataTransfer?.files?.[0];
+  if (f) handleImportFile(f);
+});
+
+/* ----- Wizard de cuotas: wiring (defensivo) ----- */
+(function wireWizard() {
+  const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
+  on('openWizard',   'click', openWizardModal);
+  on('wizardClose',  'click', closeWizardModal);
+  on('wizardCancel', 'click', closeWizardModal);
+  on('wizardConfirm','click', confirmWizard);
+  const overlay = $('wizardOverlay');
+  if (overlay) overlay.addEventListener('click', e => { if (e.target === overlay) closeWizardModal(); });
+  document.querySelectorAll('.wiz-chip').forEach(c => {
+    c.addEventListener('click', () => applyWizardPreset(c.dataset.preset));
+  });
+  ['wzGrupo','wzMedio','wzCantidad','wzFecha','wzPeriodDays'].forEach(id => on(id, 'input', refreshWizardPreview));
+  ['wzImporte','wzDelta'].forEach(id => on(id, 'input', e => { liveFormatMoney(e.target); refreshWizardPreview(); }));
+  on('wzPeriod',   'change', refreshWizardPreview);
+  on('wzCategoria','change', refreshWizardPreview);
+  on('wzTipo',     'change', e => { fillWizardCategorias(e.target.value); refreshWizardPreview(); });
+})();
 
 $('authSubmit').addEventListener('click', handleAuthSubmit);
 $('authToggle').addEventListener('click', () => setAuthMode(authMode === 'signin' ? 'signup' : 'signin'));
