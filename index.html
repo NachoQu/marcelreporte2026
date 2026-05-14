@@ -451,6 +451,34 @@
     font-weight: 600;
     border-top: 2px solid var(--border-strong);
   }
+
+  /* Tooltip flotante para celdas de la pivote (muestra el valor exacto) */
+  .pivot-tip {
+    position: fixed;
+    display: none;
+    background: var(--panel-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 7px 11px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text);
+    white-space: nowrap;
+    z-index: 9999;
+    pointer-events: none;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  }
+  .pivot-tip .tip-label {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 3px;
+    font-weight: 600;
+  }
+  table.pivot td[data-full], table.pivot th[data-full] { cursor: help; }
   table.pivot tr.totals.posicion td,
   table.pivot tr.totals.posicion th {
     background: rgba(0, 166, 80, 0.08);
@@ -1658,9 +1686,9 @@ function renderPivot() {
     if (row.type === 'static') {
       // Filas estáticas (disponibilidades): el valor va sólo en la columna total.
       html += `<tr class="${row.cls || ''}">
-        <th class="row-label" title="${row.label}">${row.label}</th>
+        <th class="row-label" data-full="${row.label}">${row.label}</th>
         ${keys.map(() => `<td class="zero">—</td>`).join('')}
-        <td class="${cellClass(row.value, false)}" title="${fmt(row.value)}">${row.value === 0 ? '—' : fmtCompact(row.value)}</td>
+        <td class="${cellClass(row.value, false)}" data-full="${fmt(row.value)}" data-row="${row.label}" data-col="Total">${row.value === 0 ? '—' : fmtCompact(row.value)}</td>
       </tr>`;
       continue;
     }
@@ -1676,9 +1704,9 @@ function renderPivot() {
       if (rowTotal === 0 && !showEmpty) continue;
 
       html += `<tr class="${row.cls || ''}">
-        <th class="row-label" title="${row.label}">${row.label}</th>
-        ${cells.map(c => `<td class="${cellClass(c.v, c.k === todayKey)}" title="${fmt(c.v)}">${c.v === 0 ? '—' : fmtCompact(c.v)}</td>`).join('')}
-        <td class="${cellClass(rowTotal, false)}" title="${fmt(rowTotal)}">${rowTotal === 0 ? '—' : fmtCompact(rowTotal)}</td>
+        <th class="row-label" data-full="${row.label}">${row.label}</th>
+        ${cells.map(c => `<td class="${cellClass(c.v, c.k === todayKey)}" data-full="${fmt(c.v)}" data-row="${row.label}" data-col="${bucketLabel(c.k, bucket)}">${c.v === 0 ? '—' : fmtCompact(c.v)}</td>`).join('')}
+        <td class="${cellClass(rowTotal, false)}" data-full="${fmt(rowTotal)}" data-row="${row.label}" data-col="Total">${rowTotal === 0 ? '—' : fmtCompact(rowTotal)}</td>
       </tr>`;
       continue;
     }
@@ -1690,9 +1718,9 @@ function renderPivot() {
         : cells.reduce((s, c) => s + c.v, 0);
 
       html += `<tr class="${row.cls || ''}">
-        <th class="row-label" title="${row.label}">${row.label}</th>
-        ${cells.map(c => `<td class="${cellClass(c.v, c.k === todayKey)}" title="${fmt(c.v)}">${c.v === 0 ? '—' : fmtCompact(c.v)}</td>`).join('')}
-        <td class="${cellClass(rowTotal, false)}" title="${fmt(rowTotal)}">${rowTotal === 0 ? '—' : fmtCompact(rowTotal)}</td>
+        <th class="row-label" data-full="${row.label}">${row.label}</th>
+        ${cells.map(c => `<td class="${cellClass(c.v, c.k === todayKey)}" data-full="${fmt(c.v)}" data-row="${row.label}" data-col="${bucketLabel(c.k, bucket)}">${c.v === 0 ? '—' : fmtCompact(c.v)}</td>`).join('')}
+        <td class="${cellClass(rowTotal, false)}" data-full="${fmt(rowTotal)}" data-row="${row.label}" data-col="Total">${rowTotal === 0 ? '—' : fmtCompact(rowTotal)}</td>
       </tr>`;
     }
   }
@@ -1705,6 +1733,46 @@ function renderPivot() {
   if (cb) cb.addEventListener('change', e => {
     state.ui.pivotShowEmpty = e.target.checked;
     renderPivot();
+  });
+
+  initPivotTooltip();
+}
+
+/* Tooltip flotante para la pivote — se inicializa una vez, usa event delegation */
+function initPivotTooltip() {
+  if (window.__pivotTipReady) return;
+  window.__pivotTipReady = true;
+  const tip = document.createElement('div');
+  tip.className = 'pivot-tip';
+  document.body.appendChild(tip);
+
+  document.addEventListener('mouseover', e => {
+    const cell = e.target.closest('table.pivot [data-full]');
+    if (!cell) return;
+    const full = cell.dataset.full;
+    const rowLabel = cell.dataset.row;
+    const colLabel = cell.dataset.col;
+    if (rowLabel && colLabel) {
+      tip.innerHTML = `<span class="tip-label">${rowLabel} · ${colLabel}</span>${full}`;
+    } else {
+      tip.textContent = full;
+    }
+    tip.style.display = 'block';
+    const r = cell.getBoundingClientRect();
+    const tipW = tip.offsetWidth, tipH = tip.offsetHeight;
+    let left = r.right - tipW;
+    let top = r.top - tipH - 6;
+    if (top < 8) top = r.bottom + 6;
+    if (left < 8) left = 8;
+    if (left + tipW > window.innerWidth - 8) left = window.innerWidth - tipW - 8;
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+  });
+  document.addEventListener('mouseout', e => {
+    const to = e.relatedTarget;
+    if (!to || !to.closest || !to.closest('table.pivot [data-full]')) {
+      tip.style.display = 'none';
+    }
   });
 }
 
