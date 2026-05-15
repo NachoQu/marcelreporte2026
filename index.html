@@ -973,6 +973,68 @@
     font-size: 11px; color: var(--muted); margin-bottom: 8px; line-height: 1.5;
   }
 
+  /* === Filtros de Manuales === */
+  .mn-filterbar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    margin: 8px 0 12px 0;
+    padding: 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .mn-filterbar label {
+    font-size: 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+    margin-bottom: 4px; display: block;
+  }
+  .mn-filterbar input,
+  .mn-filterbar select {
+    width: 100%; box-sizing: border-box;
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px;
+    padding: 6px 8px; font-size: 12px; font-family: inherit;
+  }
+  .mn-cat-chips {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    grid-column: 1 / -1;
+  }
+  .mn-cat-chip {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 12px;
+    padding: 4px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .mn-cat-chip.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .mn-cat-chip.in.active { background: #2e7d32; border-color: #2e7d32; }
+  .mn-filter-actions {
+    display: flex; gap: 8px; align-items: end;
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .mn-filter-info { font-size: 11px; color: var(--muted); }
+  .mn-filter-info b { color: var(--text); }
+  .mn-bulk-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .mn-bulk-actions button { padding: 5px 10px; font-size: 11px; }
+  .mn-bulk-actions .danger {
+    background: rgba(231, 76, 60, 0.12);
+    color: var(--red);
+    border: 1px solid rgba(231, 76, 60, 0.3);
+  }
+  .mn-bulk-actions .danger:hover { background: rgba(231, 76, 60, 0.25); }
+  td.sel-col, th.sel-col { width: 28px; text-align: center; padding: 0 4px !important; }
+  td.sel-col input, th.sel-col input { accent-color: var(--accent); cursor: pointer; }
+
   /* Wizard de cuotas */
   .wiz-card { max-width: 720px; width: 92vw; }
   .wiz-presets {
@@ -1371,7 +1433,11 @@ function d(offset) {
 const state = {
   balances: [],
   ar: [], cr: [], ap: [], ce: [], mn: [],
-  ui: { tab: 'ar', bucket: 'week', endDate: d(60) },
+  ui: {
+    tab: 'ar', bucket: 'week', endDate: d(60),
+    mnFilters: { categorias: [], grupo: '', search: '', situacion: '', dateFrom: '', dateTo: '' },
+    mnSelected: new Set(),
+  },
 };
 
 /* Categorías estándar para movimientos manuales (alineadas con el Excel de referencia).
@@ -2997,6 +3063,158 @@ const tabConfigs = {
   },
 };
 
+function wireMnFilterBar() {
+  const f = state.ui.mnFilters;
+  const debouncedRender = (() => {
+    let t; return () => { clearTimeout(t); t = setTimeout(() => { renderTab(); }, 180); };
+  })();
+  const bind = (id, prop, evt = 'input') => {
+    const el = $(id); if (!el) return;
+    el.addEventListener(evt, e => {
+      f[prop] = e.target.value;
+      if (evt === 'input') debouncedRender(); else renderTab();
+    });
+  };
+  bind('mnFsearch', 'search', 'input');
+  bind('mnFgrupo',  'grupo',  'input');
+  bind('mnFsit',    'situacion', 'change');
+  bind('mnFfrom',   'dateFrom',  'change');
+  bind('mnFto',     'dateTo',    'change');
+
+  document.querySelectorAll('.mn-cat-chip').forEach(chip => {
+    chip.addEventListener('click', e => {
+      const cat = e.currentTarget.dataset.mnCat;
+      const arr = f.categorias;
+      const i = arr.indexOf(cat);
+      if (i >= 0) arr.splice(i, 1); else arr.push(cat);
+      renderTab();
+    });
+  });
+
+  const reset = $('mnFreset');
+  if (reset) reset.addEventListener('click', () => {
+    state.ui.mnFilters = { categorias: [], grupo: '', search: '', situacion: '', dateFrom: '', dateTo: '' };
+    state.ui.mnSelected.clear();
+    renderTab();
+  });
+
+  document.querySelectorAll('input.mn-sel').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const id = e.target.dataset.id;
+      if (e.target.checked) state.ui.mnSelected.add(id);
+      else state.ui.mnSelected.delete(id);
+      renderTab();
+    });
+  });
+  const selAll = $('mnSelAll');
+  if (selAll) selAll.addEventListener('change', e => {
+    const visibleIdx = getFilteredMnIndices();
+    if (e.target.checked) visibleIdx.forEach(i => state.ui.mnSelected.add(state.mn[i].id));
+    else visibleIdx.forEach(i => state.ui.mnSelected.delete(state.mn[i].id));
+    renderTab();
+  });
+
+  const bulk = $('mnBulkDelete');
+  if (bulk) bulk.addEventListener('click', async () => {
+    const ids = [...state.ui.mnSelected];
+    if (!ids.length) return;
+    if (!confirm(`¿Borrar ${ids.length} movimiento(s)? Esta acción no se puede deshacer.`)) return;
+    bulk.disabled = true;
+    bulk.textContent = 'Borrando...';
+    try {
+      const { error } = await sb.from('movimientos_manuales').delete().in('id', ids);
+      if (error) throw error;
+      state.mn = state.mn.filter(it => !state.ui.mnSelected.has(it.id));
+      state.ui.mnSelected.clear();
+      renderTab();
+      recompute();
+    } catch (e) {
+      console.error('bulk delete error', e);
+      alert('Error al borrar: ' + (e.message || e.code || 'desconocido'));
+      bulk.disabled = false;
+      bulk.textContent = `Borrar ${ids.length} seleccionado(s)`;
+    }
+  });
+}
+
+function getFilteredMnIndices() {
+  const f = state.ui.mnFilters;
+  const search = (f.search || '').trim().toLowerCase();
+  const grupo  = (f.grupo  || '').trim().toLowerCase();
+  const cats   = new Set(f.categorias || []);
+  const sit    = (f.situacion || '').trim();
+  const from   = f.dateFrom || '';
+  const to     = f.dateTo   || '';
+  const result = [];
+  state.mn.forEach((it, idx) => {
+    if (cats.size && !cats.has(it.categoria || '')) return;
+    if (grupo) {
+      const g = ((it.grupoId || '') + ' ' + (it.grupoCodigo || '')).toLowerCase();
+      if (!g.includes(grupo)) return;
+    }
+    if (search) {
+      const s = ((it.desc || '') + ' ' + (it.medio || '') + ' ' + (it.observaciones || '')).toLowerCase();
+      if (!s.includes(search)) return;
+    }
+    if (sit && (it.situacion || '') !== sit) return;
+    if (from && it.date < from) return;
+    if (to && it.date > to) return;
+    result.push(idx);
+  });
+  return result;
+}
+
+function renderMnFilterBar(totalAll, totalShown, totalSum) {
+  const f = state.ui.mnFilters;
+  const cats = state.ui.tab === 'mn' ? CATEGORIAS_MANUALES.out.concat(CATEGORIAS_MANUALES.in) : [];
+  const chips = cats.map(c => {
+    const active = f.categorias.includes(c) ? ' active' : '';
+    const inCls = CATEGORIAS_MANUALES.in.includes(c) ? ' in' : '';
+    return `<span class="mn-cat-chip${inCls}${active}" data-mn-cat="${escapeHtml(c)}">${escapeHtml(c)}</span>`;
+  }).join('');
+  const selCount = state.ui.mnSelected.size;
+  const bulkBtn = selCount > 0
+    ? `<button class="danger" id="mnBulkDelete">Borrar ${selCount} seleccionado(s)</button>`
+    : '';
+  return `
+    <div class="mn-filterbar">
+      <div>
+        <label>Búsqueda libre</label>
+        <input type="text" id="mnFsearch" value="${escapeHtml(f.search || '')}" placeholder="Concepto, medio, observación..." />
+      </div>
+      <div>
+        <label>Grupo / Cód.</label>
+        <input type="text" id="mnFgrupo" value="${escapeHtml(f.grupo || '')}" placeholder="Préstamo J / V537987" />
+      </div>
+      <div>
+        <label>Situación</label>
+        <select id="mnFsit">
+          ${['', 'Pendiente', 'Pagado', 'Diferido', 'Reprogramado']
+            .map(s => `<option value="${s}"${s === f.situacion ? ' selected' : ''}>${s || '— Todas —'}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label>Desde</label>
+        <input type="date" id="mnFfrom" value="${f.dateFrom || ''}" />
+      </div>
+      <div>
+        <label>Hasta</label>
+        <input type="date" id="mnFto" value="${f.dateTo || ''}" />
+      </div>
+      <div class="mn-cat-chips">${chips}</div>
+      <div class="mn-filter-actions">
+        <div class="mn-filter-info">
+          Mostrando <b>${totalShown}</b> de <b>${totalAll}</b> · Total filtrado: <b>${fmt(totalSum)}</b>
+        </div>
+        <div class="mn-bulk-actions">
+          ${bulkBtn}
+          <button class="ghost" id="mnFreset">Limpiar filtros</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderTab() {
   const tab = state.ui.tab;
   if (tab === 'pivot') return renderPivot();
@@ -3018,7 +3236,47 @@ function renderTab() {
     </div>
   `;
 
-  if (!data.length) {
+  /* Render especial para Manuales: filtros + checkboxes para borrar en lote */
+  if (tab === 'mn') {
+    const visibleIdx = getFilteredMnIndices();
+    const visibleData = visibleIdx.map(i => state.mn[i]);
+    const totalSum = visibleData.reduce((s, it) => s + (it.type === 'in' ? Number(it.amount || 0) : -Number(it.amount || 0)), 0);
+    const filterBar = renderMnFilterBar(state.mn.length, visibleIdx.length, Math.abs(totalSum));
+
+    // sanear seleccionados que ya no están visibles (por filtro o borrado externo)
+    const visibleIds = new Set(visibleData.map(it => it.id));
+    [...state.ui.mnSelected].forEach(id => { if (!visibleIds.has(id)) state.ui.mnSelected.delete(id); });
+
+    if (!data.length) {
+      root.innerHTML = `${toolbar}${filterBar}<div class="empty">Sin registros para mostrar.</div>${addBtn}`;
+    } else if (!visibleData.length) {
+      root.innerHTML = `${toolbar}${filterBar}<div class="empty">Ningún movimiento coincide con los filtros.</div>${addBtn}`;
+    } else {
+      const allSel = visibleData.every(it => state.ui.mnSelected.has(it.id));
+      const head = `<th class="sel-col"><input type="checkbox" id="mnSelAll"${allSel ? ' checked' : ''} /></th>`
+                 + cfg.cols.map(c => `<th>${c}</th>`).join('');
+      const body = visibleIdx.map((origIdx) => {
+        const it = state.mn[origIdx];
+        const checked = state.ui.mnSelected.has(it.id) ? ' checked' : '';
+        const trCls = it.pagadoAt ? ' class="paid-row"' : '';
+        return `<tr${trCls}>
+          <td class="sel-col"><input type="checkbox" class="mn-sel" data-id="${it.id}"${checked} /></td>
+          ${cfg.rowHTML(it, origIdx)}
+        </tr>`;
+      }).join('');
+      root.innerHTML = `
+        ${toolbar}${filterBar}
+        <div class="table-wrap">
+          <table>
+            <thead><tr>${head}</tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+        ${addBtn}
+      `;
+    }
+    wireMnFilterBar();
+  } else if (!data.length) {
     root.innerHTML = `
       ${toolbar}
       <div class="empty">Sin registros para mostrar.</div>
