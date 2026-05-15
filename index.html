@@ -854,6 +854,125 @@
   .modal-msg.ok { color: var(--green); }
   .modal-msg.info { color: var(--muted); }
 
+  /* === Grilla inline editable === */
+  .grid-card { max-width: 1100px; width: 95vw; }
+  .grid-presets {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px;
+  }
+  .grid-chip {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .grid-chip.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .grid-wrap {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: auto;
+    max-height: 60vh;
+    background: var(--panel-2);
+  }
+  table.inline-grid {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 12px;
+  }
+  table.inline-grid thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 8px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  table.inline-grid thead th.req::after {
+    content: ' *'; color: var(--red); font-weight: 700;
+  }
+  table.inline-grid thead th.row-num { width: 40px; text-align: right; }
+  table.inline-grid tbody td {
+    padding: 0;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  table.inline-grid tbody td.row-num {
+    color: var(--muted);
+    text-align: right;
+    padding: 0 8px;
+    font-variant-numeric: tabular-nums;
+    background: var(--panel-2);
+    width: 40px;
+  }
+  table.inline-grid tbody td.act-col {
+    width: 30px; text-align: center; background: var(--panel-2);
+  }
+  table.inline-grid input,
+  table.inline-grid select {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    padding: 7px 8px;
+    font-family: inherit;
+    font-size: 12px;
+    outline: none;
+    box-sizing: border-box;
+  }
+  table.inline-grid input:focus,
+  table.inline-grid select:focus {
+    background: rgba(0, 166, 80, 0.08);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  table.inline-grid input.cell-err,
+  table.inline-grid select.cell-err {
+    background: rgba(231, 76, 60, 0.10);
+    box-shadow: inset 0 0 0 1px var(--red);
+  }
+  table.inline-grid tr.empty-row td { background: var(--panel); opacity: 0.6; }
+  table.inline-grid tr.empty-row td.row-num { opacity: 0.5; }
+  .grid-del {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 14px;
+  }
+  .grid-del:hover { color: var(--red); transform: none; box-shadow: none; }
+  .grid-foot-info {
+    font-size: 11px; color: var(--muted);
+    display: flex; gap: 14px; flex-wrap: wrap;
+  }
+  .grid-foot-info b { color: var(--text); }
+  .grid-foot-info .err-count { color: var(--red); }
+  .grid-add-rows {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 12px;
+    font-size: 11px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+  .grid-add-rows:hover { color: var(--text); }
+  .grid-hint {
+    font-size: 11px; color: var(--muted); margin-bottom: 8px; line-height: 1.5;
+  }
+
   /* Wizard de cuotas */
   .wiz-card { max-width: 720px; width: 92vw; }
   .wiz-presets {
@@ -1025,6 +1144,7 @@
       <div class="row"><label>Importe</label><input id="m_amount" type="text" inputmode="numeric" class="amount" placeholder="0" /></div>
       <button id="addManual" style="width: 100%; margin-top: 10px;">+ Agregar movimiento manual</button>
       <button id="openWizard" class="ghost" style="width: 100%; margin-top: 6px;">+ Cargar en cuotas (plan / préstamo / sueldos)</button>
+      <button id="openGrid" class="ghost" style="width: 100%; margin-top: 6px;">✎ Cargar en grilla (AFIP / Sueldos / Préstamos / Tarjetas)</button>
     </div>
   </aside>
 
@@ -1104,6 +1224,42 @@
       <div class="right">
         <button class="ghost" id="importCancel">Cancelar</button>
         <button id="importConfirm" disabled>Importar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de grilla inline (Impuestos/AFIP, Sueldos, Préstamos, Tarjetas) -->
+<div id="gridOverlay" class="modal-overlay" role="dialog" aria-modal="true">
+  <div class="modal-card grid-card">
+    <div class="modal-head">
+      <div>
+        <h3 id="gridTitle">Cargar en grilla</h3>
+        <div class="sub" id="gridSubtitle">—</div>
+      </div>
+      <button class="modal-close" id="gridClose" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="grid-presets">
+        <button type="button" class="grid-chip" data-grid-preset="afip">Impuestos / Planes AFIP</button>
+        <button type="button" class="grid-chip" data-grid-preset="sueldos">Sueldos / Sindicatos</button>
+        <button type="button" class="grid-chip" data-grid-preset="prestamos">Préstamos</button>
+        <button type="button" class="grid-chip" data-grid-preset="tarjetas">Tarjetas</button>
+      </div>
+      <div class="grid-hint">
+        Tip: podés pegar varias filas desde Excel (Ctrl+C en Excel → click en la primera celda → Ctrl+V). Las filas vacías se ignoran al guardar.
+      </div>
+      <div class="grid-wrap">
+        <table class="inline-grid" id="gridTable"></table>
+      </div>
+      <button type="button" class="grid-add-rows" id="gridAddRows">+ Agregar 5 filas</button>
+      <div id="gridMsg" class="modal-msg" style="display:none; margin-top:10px;"></div>
+    </div>
+    <div class="modal-foot">
+      <div class="left grid-foot-info" id="gridFootInfo">—</div>
+      <div class="right">
+        <button class="ghost" id="gridCancel">Cancelar</button>
+        <button id="gridConfirm">Guardar todo</button>
       </div>
     </div>
   </div>
@@ -1354,6 +1510,8 @@ const mappers = {
       date: r.fecha, amount: Number(r.importe),
       grupoId: r.grupo_id || '', cuotaNro: r.cuota_nro ?? null, cuotaTotal: r.cuota_total ?? null,
       medio: r.medio || '',
+      grupoCodigo: r.grupo_codigo || '', situacion: r.situacion || '',
+      observaciones: r.observaciones || '',
     }),
     toDb: r => {
       const toNullableInt = v => (v === '' || v == null || Number.isNaN(Number(v))) ? null : parseInt(v, 10);
@@ -1364,6 +1522,9 @@ const mappers = {
         cuota_nro: toNullableInt(r.cuotaNro),
         cuota_total: toNullableInt(r.cuotaTotal),
         medio: r.medio || null,
+        grupo_codigo: r.grupoCodigo || null,
+        situacion: r.situacion || null,
+        observaciones: r.observaciones || null,
       };
     },
   },
@@ -1533,6 +1694,77 @@ const importSchemas = {
       desc: r.desc, type: r.type, categoria: r.categoria || null, date: r.date, amount: r.amount,
       grupoId: r.grupoId || '', cuotaNro: r.cuotaNro || null, cuotaTotal: r.cuotaTotal || null, medio: r.medio || '',
     }),
+  },
+};
+
+/* =====================================================================
+   GRILLAS INLINE  ──  Carga rápida tipo Excel para Impuestos/AFIP,
+   Sueldos-Sindicato, Préstamos y Tarjetas. Cada grilla guarda en
+   `movimientos_manuales` con sus defaults (tipo/categoría/medio).
+   ===================================================================== */
+
+const SITUACIONES = ['', 'Pendiente', 'Pagado', 'Diferido', 'Reprogramado'];
+
+const GRID_SCHEMAS = {
+  afip: {
+    title: 'Impuestos / Planes AFIP',
+    subtitle: 'Una fila por cuota. Código de plan agrupa las cuotas del mismo plan AFIP.',
+    initialRows: 8,
+    rowDefaults: { type: 'out', medio: 'AFIP' },
+    columns: [
+      { key: 'desc',        header: 'Descripción',  type: 'text',  width: 200, placeholder: 'IVA mensual / Ganancias' },
+      { key: 'grupoId',     header: 'Período',      type: 'text',  width: 100, placeholder: '05/2026' },
+      { key: 'date',        header: 'Fecha vto',    type: 'date',  width: 130, required: true },
+      { key: 'grupoCodigo', header: 'Cód. plan',    type: 'text',  width: 110, placeholder: 'V537987' },
+      { key: 'categoria',   header: 'Categoría',    type: 'enum',  width: 130, required: true,
+        options: ['Planes AFIP', 'Impuestos'], default: 'Planes AFIP' },
+      { key: 'cuotaNro',    header: 'Cuota',        type: 'int',   width: 70 },
+      { key: 'amount',      header: 'Importe',      type: 'money', width: 140, required: true },
+      { key: 'situacion',   header: 'Situación',    type: 'enum',  width: 120,
+        options: SITUACIONES, default: 'Pendiente' },
+    ],
+  },
+  sueldos: {
+    title: 'Sueldos / Sindicatos',
+    subtitle: 'Una fila por pago. Categoría = Banco / Efectivo / Sindicato / SAC / Premios.',
+    initialRows: 10,
+    rowDefaults: { type: 'out' },
+    columns: [
+      { key: 'desc',      header: 'Concepto',  type: 'text',  width: 280, required: true,
+        placeholder: '2da Quincena de mayo + Mensuales' },
+      { key: 'date',      header: 'Fecha',     type: 'date',  width: 130, required: true },
+      { key: 'categoria', header: 'Categoría', type: 'enum',  width: 160, required: true,
+        options: ['Sueldos Banco', 'Sueldos Efectivo', 'Premios', 'SAC', 'Sindicatos', 'Sueldos AFIP'],
+        default: 'Sueldos Banco' },
+      { key: 'amount',    header: 'Importe',   type: 'money', width: 160, required: true },
+      { key: 'medio',     header: 'Medio',     type: 'text',  width: 100, placeholder: 'BNA' },
+    ],
+  },
+  prestamos: {
+    title: 'Préstamos',
+    subtitle: 'Una fila por cuota. Código de préstamo agrupa cuotas del mismo préstamo.',
+    initialRows: 12,
+    rowDefaults: { type: 'out', categoria: 'Préstamos', medio: 'NACION' },
+    columns: [
+      { key: 'cuotaNro',      header: 'Nº Cuota',     type: 'int',   width: 80 },
+      { key: 'date',          header: 'Fecha débito', type: 'date',  width: 130, required: true },
+      { key: 'amount',        header: 'Importe',      type: 'money', width: 140, required: true },
+      { key: 'medio',         header: 'Banco',        type: 'text',  width: 100, default: 'NACION' },
+      { key: 'grupoCodigo',   header: 'Cód. préstamo',type: 'text',  width: 130, placeholder: 'Pmo-001' },
+      { key: 'observaciones', header: 'Observación',  type: 'text',  width: 220 },
+    ],
+  },
+  tarjetas: {
+    title: 'Tarjetas',
+    subtitle: 'Una fila por vencimiento de tarjeta.',
+    initialRows: 6,
+    rowDefaults: { type: 'out', categoria: 'Tarjetas' },
+    columns: [
+      { key: 'desc',   header: 'Nombre',    type: 'text',  width: 280, required: true,
+        placeholder: 'Visa Galicia / Mastercard BBVA' },
+      { key: 'date',   header: 'Fecha vto', type: 'date',  width: 140, required: true },
+      { key: 'amount', header: 'Importe',   type: 'money', width: 180, required: true },
+    ],
   },
 };
 
@@ -2140,6 +2372,310 @@ async function confirmWizard() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Generar cuotas';
+  }
+}
+
+/* =====================================================================
+   GRILLA INLINE  ──  carga rápida tipo Excel para AFIP / Sueldos /
+   Préstamos / Tarjetas. Renderiza una tabla con un schema declarativo
+   ([[GRID_SCHEMAS]]) y persiste en `movimientos_manuales` al guardar.
+   ===================================================================== */
+
+const gridState = {
+  preset: 'afip',
+  rows: [],   // array de objetos parciales con las keys del schema activo
+};
+
+function blankGridRow(schema) {
+  const r = {};
+  schema.columns.forEach(c => { r[c.key] = c.default ?? ''; });
+  return r;
+}
+
+function ensureTrailingEmptyRow(schema) {
+  const last = gridState.rows[gridState.rows.length - 1];
+  const lastIsEmpty = last && schema.columns.every(c => {
+    const v = last[c.key];
+    return v === '' || v == null;
+  });
+  if (!lastIsEmpty) gridState.rows.push(blankGridRow(schema));
+}
+
+function isRowEmpty(row, schema) {
+  return schema.columns.every(c => {
+    const v = row[c.key];
+    return v === '' || v == null;
+  });
+}
+
+function parseGridMoney(s) {
+  if (s == null || s === '') return NaN;
+  const cleaned = String(s).replace(/[\s$]/g, '').replace(/\./g, '').replace(',', '.');
+  const n = Number(cleaned);
+  return isFinite(n) ? n : NaN;
+}
+
+function parseGridDate(s) {
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // Soporte para pegado desde Excel: DD/MM/AAAA, DD-MM-AAAA, M/D/YYYY
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) {
+    const d = m[1].padStart(2, '0'), mo = m[2].padStart(2, '0');
+    return `${m[3]}-${mo}-${d}`;
+  }
+  return null;
+}
+
+function validateGridRow(row, schema) {
+  if (isRowEmpty(row, schema)) return { empty: true, errors: {} };
+  const errors = {};
+  for (const c of schema.columns) {
+    const v = row[c.key];
+    const isEmpty = v === '' || v == null;
+    if (c.required && isEmpty) { errors[c.key] = 'requerido'; continue; }
+    if (isEmpty) continue;
+    if (c.type === 'date') {
+      const iso = parseGridDate(v);
+      if (!iso) errors[c.key] = 'fecha inválida';
+    } else if (c.type === 'money') {
+      const n = parseGridMoney(v);
+      if (!isFinite(n) || n < 0) errors[c.key] = 'importe inválido';
+    } else if (c.type === 'int') {
+      const n = parseInt(v, 10);
+      if (!Number.isFinite(n) || n < 0) errors[c.key] = 'número inválido';
+    } else if (c.type === 'enum' && c.options) {
+      if (!c.options.includes(String(v))) errors[c.key] = 'valor no válido';
+    }
+  }
+  return { empty: false, errors };
+}
+
+function renderGridTable() {
+  const schema = GRID_SCHEMAS[gridState.preset];
+  const t = $('gridTable');
+  if (!schema) { t.innerHTML = ''; return; }
+
+  ensureTrailingEmptyRow(schema);
+
+  const headCells = schema.columns.map(c => {
+    const req = c.required ? ' req' : '';
+    return `<th class="${req}" style="min-width:${c.width}px">${c.header}</th>`;
+  }).join('');
+
+  const bodyRows = gridState.rows.map((row, idx) => {
+    const { empty, errors } = validateGridRow(row, schema);
+    const trCls = empty ? ' class="empty-row"' : '';
+    const cells = schema.columns.map(c => {
+      const v = row[c.key] ?? '';
+      const errCls = errors[c.key] ? ' cell-err' : '';
+      const errTitle = errors[c.key] ? ` title="${errors[c.key]}"` : '';
+      if (c.type === 'enum') {
+        const opts = c.options.map(o => `<option value="${o}"${String(v) === String(o) ? ' selected' : ''}>${o || '—'}</option>`).join('');
+        return `<td><select class="g-cell${errCls}" data-r="${idx}" data-k="${c.key}"${errTitle}>${opts}</select></td>`;
+      }
+      const inputType = c.type === 'date' ? 'date' : (c.type === 'int' ? 'number' : 'text');
+      const inputMode = (c.type === 'money' || c.type === 'int') ? ' inputmode="numeric"' : '';
+      const ph = c.placeholder ? ` placeholder="${c.placeholder}"` : '';
+      const min = c.type === 'int' ? ' min="0" step="1"' : '';
+      return `<td><input type="${inputType}"${inputMode} class="g-cell${errCls}" data-r="${idx}" data-k="${c.key}" value="${String(v).replace(/"/g, '&quot;')}"${ph}${errTitle}${min} /></td>`;
+    }).join('');
+    return `<tr${trCls}>
+      <td class="row-num">${idx + 1}</td>
+      ${cells}
+      <td class="act-col"><button type="button" class="grid-del" data-del-r="${idx}" title="Eliminar fila">×</button></td>
+    </tr>`;
+  }).join('');
+
+  t.innerHTML = `
+    <thead><tr>
+      <th class="row-num">#</th>
+      ${headCells}
+      <th class="act-col"></th>
+    </tr></thead>
+    <tbody>${bodyRows}</tbody>
+  `;
+
+  t.querySelectorAll('input.g-cell, select.g-cell').forEach(el => {
+    const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(evt, onGridCellChange);
+    if (el.tagName === 'INPUT') el.addEventListener('paste', onGridPaste);
+  });
+  t.querySelectorAll('button.grid-del').forEach(b => {
+    b.addEventListener('click', e => {
+      const i = +e.currentTarget.dataset.delR;
+      gridState.rows.splice(i, 1);
+      renderGridTable();
+      updateGridFootInfo();
+    });
+  });
+
+  updateGridFootInfo();
+}
+
+function onGridCellChange(e) {
+  const r = +e.target.dataset.r;
+  const k = e.target.dataset.k;
+  if (!gridState.rows[r]) return;
+  gridState.rows[r][k] = e.target.value;
+
+  const schema = GRID_SCHEMAS[gridState.preset];
+  const lastIdx = gridState.rows.length - 1;
+  if (r === lastIdx && !isRowEmpty(gridState.rows[r], schema)) {
+    gridState.rows.push(blankGridRow(schema));
+    renderGridTable();
+    const nextRow = gridState.rows[r + 1];
+    if (nextRow) {
+      setTimeout(() => {
+        const next = document.querySelector(`#gridTable input[data-r="${r}"][data-k="${k}"]`);
+        if (next) next.focus();
+      }, 0);
+    }
+    return;
+  }
+  // Marcar errores sin re-renderizar todo
+  const { errors } = validateGridRow(gridState.rows[r], schema);
+  schema.columns.forEach(c => {
+    const cell = document.querySelector(`#gridTable [data-r="${r}"][data-k="${c.key}"]`);
+    if (!cell) return;
+    cell.classList.toggle('cell-err', !!errors[c.key]);
+    if (errors[c.key]) cell.title = errors[c.key]; else cell.removeAttribute('title');
+  });
+  updateGridFootInfo();
+}
+
+function onGridPaste(e) {
+  const txt = (e.clipboardData || window.clipboardData)?.getData('text');
+  if (!txt || !/\n|\t/.test(txt)) return; // pegado simple: dejar default
+  e.preventDefault();
+  const schema = GRID_SCHEMAS[gridState.preset];
+  const startR = +e.target.dataset.r;
+  const startK = e.target.dataset.k;
+  const startCol = schema.columns.findIndex(c => c.key === startK);
+  if (startCol < 0) return;
+
+  const lines = txt.replace(/\r/g, '').split('\n').filter(l => l.length);
+  lines.forEach((line, lineIdx) => {
+    const cells = line.split('\t');
+    const targetR = startR + lineIdx;
+    while (gridState.rows.length <= targetR) gridState.rows.push(blankGridRow(schema));
+    cells.forEach((cell, cellIdx) => {
+      const colIdx = startCol + cellIdx;
+      if (colIdx >= schema.columns.length) return;
+      const col = schema.columns[colIdx];
+      let v = cell.trim();
+      if (col.type === 'date') {
+        const iso = parseGridDate(v);
+        if (iso) v = iso;
+      }
+      gridState.rows[targetR][col.key] = v;
+    });
+  });
+  ensureTrailingEmptyRow(schema);
+  renderGridTable();
+}
+
+function updateGridFootInfo() {
+  const schema = GRID_SCHEMAS[gridState.preset];
+  let valid = 0, errs = 0;
+  let total = 0;
+  for (const row of gridState.rows) {
+    const v = validateGridRow(row, schema);
+    if (v.empty) continue;
+    if (Object.keys(v.errors).length) { errs++; continue; }
+    valid++;
+    total += parseGridMoney(row.amount) || 0;
+  }
+  const info = $('gridFootInfo');
+  info.innerHTML = `
+    <span><b>${valid}</b> fila(s) válidas</span>
+    ${errs ? `<span class="err-count"><b>${errs}</b> con error</span>` : ''}
+    <span>Total: <b>${fmt(total)}</b></span>
+  `;
+  $('gridConfirm').disabled = (valid === 0 || errs > 0);
+}
+
+function openGridModal(preset) {
+  $('gridOverlay').classList.add('open');
+  setGridPreset(preset || gridState.preset || 'afip');
+}
+
+function closeGridModal() {
+  $('gridOverlay').classList.remove('open');
+  $('gridMsg').style.display = 'none';
+}
+
+function setGridPreset(name) {
+  if (!GRID_SCHEMAS[name]) return;
+  gridState.preset = name;
+  const schema = GRID_SCHEMAS[name];
+  document.querySelectorAll('.grid-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.gridPreset === name);
+  });
+  $('gridTitle').textContent = schema.title;
+  $('gridSubtitle').textContent = schema.subtitle;
+  gridState.rows = Array.from({ length: schema.initialRows }, () => blankGridRow(schema));
+  renderGridTable();
+}
+
+async function confirmGrid() {
+  const schema = GRID_SCHEMAS[gridState.preset];
+  const btn = $('gridConfirm');
+  const msg = $('gridMsg');
+  msg.style.display = 'none';
+
+  const payloads = [];
+  for (const row of gridState.rows) {
+    const v = validateGridRow(row, schema);
+    if (v.empty || Object.keys(v.errors).length) continue;
+    const merged = { ...schema.rowDefaults, ...row };
+    const mnRow = {
+      desc:          merged.desc || '',
+      type:          merged.type,
+      categoria:     merged.categoria || null,
+      date:          parseGridDate(merged.date),
+      amount:        parseGridMoney(merged.amount),
+      grupoId:       merged.grupoId || '',
+      grupoCodigo:   merged.grupoCodigo || '',
+      cuotaNro:      merged.cuotaNro || null,
+      cuotaTotal:    null,
+      medio:         merged.medio || '',
+      situacion:     merged.situacion || '',
+      observaciones: merged.observaciones || '',
+    };
+    payloads.push({ ...mappers.mn.toDb(mnRow), user_id: currentUser.id });
+  }
+
+  if (!payloads.length) {
+    msg.style.display = 'block';
+    msg.className = 'modal-msg err';
+    msg.textContent = 'No hay filas válidas para guardar.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  try {
+    const { error } = await sb.from('movimientos_manuales').insert(payloads);
+    if (error) throw error;
+    await loadAllFromDb();
+    msg.style.display = 'block';
+    msg.className = 'modal-msg ok';
+    msg.textContent = `✓ ${payloads.length} fila(s) guardadas. Cerrando...`;
+    setTimeout(() => {
+      closeGridModal();
+      state.ui.tab = 'mn';
+      renderTab();
+      recompute();
+    }, 700);
+  } catch (e) {
+    console.error('grid save error', e);
+    msg.style.display = 'block';
+    msg.className = 'modal-msg err';
+    msg.textContent = 'Error al guardar: ' + (e.message || e.code || 'desconocido');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Guardar todo';
   }
 }
 
@@ -3300,6 +3836,25 @@ dz.addEventListener('drop', e => {
   on('wzPeriod',   'change', refreshWizardPreview);
   on('wzCategoria','change', refreshWizardPreview);
   on('wzTipo',     'change', e => { fillWizardCategorias(e.target.value); refreshWizardPreview(); });
+})();
+
+/* ----- Grilla inline: wiring ----- */
+(function wireGrid() {
+  const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
+  on('openGrid',    'click', () => openGridModal('afip'));
+  on('gridClose',   'click', closeGridModal);
+  on('gridCancel',  'click', closeGridModal);
+  on('gridConfirm', 'click', confirmGrid);
+  on('gridAddRows', 'click', () => {
+    const schema = GRID_SCHEMAS[gridState.preset];
+    for (let i = 0; i < 5; i++) gridState.rows.push(blankGridRow(schema));
+    renderGridTable();
+  });
+  const overlay = $('gridOverlay');
+  if (overlay) overlay.addEventListener('click', e => { if (e.target === overlay) closeGridModal(); });
+  document.querySelectorAll('.grid-chip').forEach(c => {
+    c.addEventListener('click', () => setGridPreset(c.dataset.gridPreset));
+  });
 })();
 
 $('authSubmit').addEventListener('click', handleAuthSubmit);
