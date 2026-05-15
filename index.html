@@ -1035,6 +1035,93 @@
   td.sel-col, th.sel-col { width: 28px; text-align: center; padding: 0 4px !important; }
   td.sel-col input, th.sel-col input { accent-color: var(--accent); cursor: pointer; }
 
+  /* === Onboarding tour === */
+  .tour-backdrop {
+    position: fixed; inset: 0; z-index: 9000;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+  }
+  .tour-spotlight {
+    position: fixed; z-index: 9001;
+    border: 2px solid var(--accent);
+    border-radius: 10px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.65), 0 0 30px rgba(0, 166, 80, 0.7);
+    pointer-events: none;
+    transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+  }
+  .tour-card {
+    position: fixed; z-index: 9002;
+    background: var(--panel);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 18px 20px 16px 20px;
+    width: 360px; max-width: calc(100vw - 40px);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+    color: var(--text);
+    transition: top 0.25s ease, left 0.25s ease;
+  }
+  .tour-card .step {
+    font-size: 10px; color: var(--accent); letter-spacing: 0.06em;
+    text-transform: uppercase; font-weight: 700;
+  }
+  .tour-card h4 {
+    margin: 4px 0 8px 0; font-size: 15px; font-weight: 700;
+    font-family: var(--font-display); letter-spacing: -0.01em;
+  }
+  .tour-card p {
+    margin: 0 0 14px 0; font-size: 12.5px; line-height: 1.55;
+    color: var(--text-soft, #c5cdc8);
+  }
+  .tour-card .actions {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px;
+  }
+  .tour-card .actions .left  { display: flex; gap: 8px; }
+  .tour-card .actions .right { display: flex; gap: 8px; }
+  .tour-card button { padding: 6px 14px; font-size: 12px; }
+  .tour-card .skip {
+    background: transparent; color: var(--muted); border: none; cursor: pointer;
+    font-size: 11px; padding: 4px 6px;
+  }
+  .tour-card .skip:hover { color: var(--text); }
+  .tour-card.centered {
+    top: 50% !important; left: 50% !important;
+    transform: translate(-50%, -50%);
+    width: 420px;
+  }
+  .tour-card.centered h4 { font-size: 18px; }
+  .tour-progress {
+    display: flex; gap: 4px; margin-top: 6px;
+  }
+  .tour-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--border-strong);
+  }
+  .tour-dot.active { background: var(--accent); }
+
+  /* Botón flotante "?" para re-disparar el tour */
+  .help-fab {
+    position: fixed; bottom: 22px; right: 22px; z-index: 800;
+    width: 42px; height: 42px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    border: none; cursor: pointer;
+    font-size: 18px; font-weight: 700; font-family: var(--font-display);
+    box-shadow: 0 8px 24px rgba(0, 166, 80, 0.4);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .help-fab:hover { transform: scale(1.06); box-shadow: 0 10px 30px rgba(0, 166, 80, 0.55); }
+
+  /* Leyenda descriptiva debajo de cada toolbar de pestaña */
+  .tab-hint {
+    font-size: 11.5px; color: var(--muted); line-height: 1.5;
+    margin: -4px 0 10px 0;
+    padding: 8px 12px;
+    background: var(--panel-2);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 6px 6px 0;
+  }
+  .tab-hint b { color: var(--text); }
+
   /* Wizard de cuotas */
   .wiz-card { max-width: 720px; width: 92vw; }
   .wiz-presets {
@@ -1290,6 +1377,10 @@
     </div>
   </div>
 </div>
+
+<!-- Onboarding tour: backdrop + spotlight + card (los rellena el JS) -->
+<div id="tourRoot" style="display:none"></div>
+<button id="helpFab" class="help-fab" title="Ver tutorial" style="display:none">?</button>
 
 <!-- Modal de grilla inline (Impuestos/AFIP, Sueldos, Préstamos, Tarjetas) -->
 <div id="gridOverlay" class="modal-overlay" role="dialog" aria-modal="true">
@@ -2835,6 +2926,194 @@ async function onAuthenticated(user) {
   $('userEmail').textContent = user.email || '';
   hideLogin();
   await loadAllFromDb();
+  // FAB siempre visible una vez logueado; el tour se dispara una sola vez.
+  $('helpFab').style.display = 'flex';
+  maybeStartOnboarding();
+}
+
+/* =====================================================================
+   ONBOARDING TOUR  ──  Se dispara la primera vez que un usuario entra.
+   Recorre las zonas principales con un spotlight + tarjeta explicativa.
+   La marca de "completado" vive en localStorage por user-id para que
+   cada usuario lo vea una sola vez.
+   ===================================================================== */
+
+const ONBOARDING_VERSION = 'v1';
+const TOUR_STEPS = [
+  {
+    selector: null, position: 'center',
+    title: '¡Bienvenido!',
+    text: 'Esta app proyecta tu cash flow combinando Xubio con cargas manuales. Te muestro en 30 segundos qué hay en cada sección. Podés saltearlo cuando quieras.',
+  },
+  {
+    selector: 'aside .panel:first-child', position: 'right',
+    title: 'Saldos iniciales',
+    text: 'Las cuentas que arman tu saldo de arranque. Vienen 4 por defecto (Fima, Galicia, Nación, Provincia). Editá el saldo de cada una con click en el monto.',
+  },
+  {
+    selector: '#syncBtn', position: 'bottom',
+    title: 'Sincronizar Xubio',
+    text: 'Trae desde Xubio: clientes, proveedores, facturas pendientes y cheques recibidos/emitidos. Recomendado 1-2 veces por semana. Las marcas de "Cobrado/Pagado" se preservan.',
+  },
+  {
+    selector: '#openWizard', position: 'right',
+    title: 'Cargar en cuotas',
+    text: 'Wizard para generar N cuotas seriadas: plan AFIP, préstamo bancario, sueldos quincenales. Soporta importes con incremento/decremento por cuota.',
+  },
+  {
+    selector: '#openGrid', position: 'right',
+    title: 'Cargar en grilla',
+    text: 'Tabla tipo Excel para 4 plantillas: Impuestos/AFIP, Sueldos/Sindicato, Préstamos y Tarjetas. Podés copiar/pegar desde Excel con Ctrl+V.',
+  },
+  {
+    selector: '.totals-bar', position: 'bottom',
+    title: 'KPIs en vivo',
+    text: 'Saldo inicial · Ingresos proyectados · Egresos proyectados · Saldo final. Se recalculan automáticamente con cada cambio dentro del rango configurado.',
+  },
+  {
+    selector: '.chart-wrap', position: 'top',
+    title: 'Línea de tiempo',
+    text: 'La curva del saldo acumulado a lo largo del rango. Si cae debajo de cero, aparece una alerta de faltante debajo del gráfico.',
+  },
+  {
+    selector: '.tabs', position: 'bottom',
+    title: 'Pestañas de datos',
+    text: 'Vista Pivote (resumen) · CxC, ChR, CxP, ChE (facturas y cheques) · Manuales (sueldos, impuestos, préstamos, tarjetas). Cada pestaña tiene filtros y borrado en lote.',
+  },
+  {
+    selector: null, position: 'center',
+    title: 'Listo',
+    text: 'Eso es todo. Si querés volver a ver el tour, hacé click en el botón "?" abajo a la derecha. Cada sección tiene una leyenda con más detalle.',
+  },
+];
+
+let tourIdx = 0;
+
+function onboardingKey() {
+  const uid = currentUser?.id || 'anon';
+  return `onboarding_done_${ONBOARDING_VERSION}_${uid}`;
+}
+
+function maybeStartOnboarding() {
+  try {
+    if (localStorage.getItem(onboardingKey())) return;
+  } catch (_) { /* sin localStorage, igual mostrar */ }
+  setTimeout(startOnboarding, 600); // dejamos respirar al render inicial
+}
+
+function startOnboarding() {
+  tourIdx = 0;
+  renderTourStep();
+}
+
+function endOnboarding(markDone = true) {
+  if (markDone) {
+    try { localStorage.setItem(onboardingKey(), '1'); } catch (_) {}
+  }
+  const root = $('tourRoot');
+  root.innerHTML = '';
+  root.style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function renderTourStep() {
+  const step = TOUR_STEPS[tourIdx];
+  if (!step) { endOnboarding(true); return; }
+
+  const root = $('tourRoot');
+  root.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+
+  const dots = TOUR_STEPS.map((_, i) =>
+    `<span class="tour-dot${i === tourIdx ? ' active' : ''}"></span>`
+  ).join('');
+
+  const total = TOUR_STEPS.length;
+  const isLast = tourIdx === total - 1;
+  const isFirst = tourIdx === 0;
+  const prevBtn = !isFirst ? `<button class="ghost" id="tourPrev">Anterior</button>` : '';
+  const nextLabel = isLast ? 'Finalizar' : 'Siguiente';
+
+  const cardCls = step.position === 'center' ? ' centered' : '';
+
+  root.innerHTML = `
+    <div class="tour-backdrop" id="tourBackdrop"></div>
+    ${step.selector ? `<div class="tour-spotlight" id="tourSpotlight"></div>` : ''}
+    <div class="tour-card${cardCls}" id="tourCard">
+      <div class="step">Paso ${tourIdx + 1} de ${total}</div>
+      <h4>${step.title}</h4>
+      <p>${step.text}</p>
+      <div class="actions">
+        <div class="left">
+          <button class="skip" id="tourSkip">${isLast ? 'Cerrar' : 'Saltar tour'}</button>
+        </div>
+        <div class="right">
+          ${prevBtn}
+          <button id="tourNext">${nextLabel}</button>
+        </div>
+      </div>
+      <div class="tour-progress">${dots}</div>
+    </div>
+  `;
+
+  if (step.selector) positionSpotlight(step);
+
+  $('tourSkip').addEventListener('click', () => endOnboarding(true));
+  $('tourNext').addEventListener('click', () => { tourIdx++; renderTourStep(); });
+  const prev = $('tourPrev');
+  if (prev) prev.addEventListener('click', () => { tourIdx--; renderTourStep(); });
+}
+
+function positionSpotlight(step) {
+  const target = document.querySelector(step.selector);
+  const spot = $('tourSpotlight');
+  const card = $('tourCard');
+  if (!target || !spot || !card) {
+    // si no se encuentra el target, centramos la tarjeta
+    if (card) {
+      card.classList.add('centered');
+      card.style.top = ''; card.style.left = '';
+    }
+    if (spot) spot.style.display = 'none';
+    return;
+  }
+  target.scrollIntoView({ block: 'center', behavior: 'instant' });
+  // dar tiempo a que termine el scroll antes de medir
+  setTimeout(() => {
+    const r = target.getBoundingClientRect();
+    const pad = 8;
+    spot.style.top    = `${r.top - pad}px`;
+    spot.style.left   = `${r.left - pad}px`;
+    spot.style.width  = `${r.width + pad * 2}px`;
+    spot.style.height = `${r.height + pad * 2}px`;
+
+    // Posición de la tarjeta según `position`
+    const cardW = 360, cardH = card.offsetHeight || 200;
+    const gap = 16;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let top = 0, left = 0;
+    switch (step.position) {
+      case 'right':
+        left = Math.min(r.right + gap, vw - cardW - 12);
+        top  = Math.max(12, Math.min(r.top, vh - cardH - 12));
+        break;
+      case 'left':
+        left = Math.max(12, r.left - cardW - gap);
+        top  = Math.max(12, Math.min(r.top, vh - cardH - 12));
+        break;
+      case 'top':
+        top  = Math.max(12, r.top - cardH - gap);
+        left = Math.max(12, Math.min(r.left + r.width / 2 - cardW / 2, vw - cardW - 12));
+        break;
+      case 'bottom':
+      default:
+        top  = Math.min(r.bottom + gap, vh - cardH - 12);
+        left = Math.max(12, Math.min(r.left + r.width / 2 - cardW / 2, vw - cardW - 12));
+        break;
+    }
+    card.style.top  = `${top}px`;
+    card.style.left = `${left}px`;
+  }, 60);
 }
 
 async function initAuth() {
@@ -3092,6 +3371,18 @@ const tabConfigs = {
     canAdd: true,
     addLabel: '+ Agregar movimiento manual',
   },
+};
+
+/* Leyendas descriptivas que se muestran debajo del toolbar de cada pestaña.
+   Pensadas para que un usuario nuevo entienda qué hay en cada lugar sin
+   tener que abrir el manual. */
+const TAB_HINTS = {
+  pivot: 'Resumen ejecutivo: filas = categorías, columnas = semanas o meses según la agrupación. Pasá el mouse sobre una celda para ver el valor exacto.',
+  ar:    '<b>Facturas de venta pendientes de cobro.</b> Vienen del sync con Xubio o se cargan a mano. Tildá "Cobrado" cuando se efectiviza — esa fila deja de sumar al proyectado.',
+  cr:    '<b>Cheques recibidos en cartera.</b> Aparecen los que tienen vencimiento ≥ hoy − 7 días (los anteriores se asumen depositados). Tildá "Cobrado" cuando se acreditan.',
+  ap:    '<b>Facturas de compra pendientes de pago.</b> Ventana de 14 días hacia atrás desde la fecha del comprobante. Tildá "Pagado" cuando se cancela.',
+  ce:    '<b>Cheques propios emitidos a proveedores</b>, pendientes de débito en la cuenta bancaria. Tildá "Debitado" cuando el banco los cobra.',
+  mn:    '<b>Sueldos, impuestos, planes AFIP, préstamos, tarjetas e ingresos puntuales.</b> Tres formas de cargar: + manual (una fila), + cuotas (wizard) o ✎ grilla (tipo Excel).',
 };
 
 /* Config genérico de filtros para CxC / Cheques rec / CxP / Cheques emit.
@@ -3416,6 +3707,7 @@ function renderTab() {
     ? `<button id="tabAdd" class="ghost" style="margin-top: 14px;">${cfg.addLabel}</button>`
     : '';
 
+  const hintHTML = TAB_HINTS[tab] ? `<div class="tab-hint">${TAB_HINTS[tab]}</div>` : '';
   const toolbar = `
     <div class="data-toolbar">
       <div class="left">${cfg.title}${data.length ? ` — ${data.length} registro(s)` : ''}</div>
@@ -3424,6 +3716,7 @@ function renderTab() {
         <button class="ghost" data-imp="${tab}">↑ Importar Excel</button>
       </div>
     </div>
+    ${hintHTML}
   `;
 
   /* Render especial para Manuales: filtros + checkboxes para borrar en lote */
@@ -4025,6 +4318,7 @@ function renderPivot() {
   const saldoFinal = accums[keys[keys.length - 1]];
 
   let html = `
+    <div class="tab-hint">${TAB_HINTS.pivot}</div>
     <div class="pivot-toolbar">
       <div class="pivot-legend">
         <span><span class="swatch" style="background: var(--accent)"></span>Cobros</span>
@@ -4322,6 +4616,19 @@ dz.addEventListener('drop', e => {
   on('wzPeriod',   'change', refreshWizardPreview);
   on('wzCategoria','change', refreshWizardPreview);
   on('wzTipo',     'change', e => { fillWizardCategorias(e.target.value); refreshWizardPreview(); });
+})();
+
+/* ----- Help FAB: re-disparar onboarding ----- */
+(function wireHelp() {
+  const fab = $('helpFab');
+  if (fab) fab.addEventListener('click', startOnboarding);
+  // Re-posicionar spotlight si la ventana cambia de tamaño durante el tour
+  window.addEventListener('resize', () => {
+    if ($('tourRoot').style.display === 'block') {
+      const step = TOUR_STEPS[tourIdx];
+      if (step && step.selector) positionSpotlight(step);
+    }
+  });
 })();
 
 /* ----- Grilla inline: wiring ----- */
