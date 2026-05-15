@@ -1437,6 +1437,15 @@ const state = {
     tab: 'ar', bucket: 'week', endDate: d(60),
     mnFilters: { categorias: [], grupo: '', search: '', situacion: '', dateFrom: '', dateTo: '' },
     mnSelected: new Set(),
+    filters: {
+      ar: { search: '', dateFrom: '', dateTo: '', status: '' },
+      cr: { search: '', dateFrom: '', dateTo: '', status: '' },
+      ap: { search: '', dateFrom: '', dateTo: '', status: '' },
+      ce: { search: '', dateFrom: '', dateTo: '', status: '' },
+    },
+    selected: {
+      ar: new Set(), cr: new Set(), ap: new Set(), ce: new Set(),
+    },
   },
 };
 
@@ -3085,6 +3094,165 @@ const tabConfigs = {
   },
 };
 
+/* Config genérico de filtros para CxC / Cheques rec / CxP / Cheques emit.
+   Manuales tiene su propio bar (más complejo) más abajo. */
+const FILTER_CONFIGS = {
+  ar: {
+    searchKeys: ['numero', 'cliente'],
+    searchPlaceholder: 'Cliente, número de factura...',
+    pendingLabel: 'Pendientes',
+    doneLabel: 'Cobradas',
+    bulkLabel: 'cuenta(s) por cobrar',
+  },
+  cr: {
+    searchKeys: ['numero', 'cliente', 'banco'],
+    searchPlaceholder: 'Cliente, banco, nº cheque...',
+    pendingLabel: 'En cartera',
+    doneLabel: 'Cobrados',
+    bulkLabel: 'cheque(s) recibido(s)',
+  },
+  ap: {
+    searchKeys: ['numero', 'proveedor'],
+    searchPlaceholder: 'Proveedor, número de factura...',
+    pendingLabel: 'Pendientes',
+    doneLabel: 'Pagadas',
+    bulkLabel: 'cuenta(s) por pagar',
+  },
+  ce: {
+    searchKeys: ['numero', 'proveedor'],
+    searchPlaceholder: 'Proveedor, nº cheque...',
+    pendingLabel: 'Pendientes',
+    doneLabel: 'Debitados',
+    bulkLabel: 'cheque(s) emitido(s)',
+  },
+};
+
+function getFilteredIndices(tab) {
+  const cfg = FILTER_CONFIGS[tab];
+  const f = state.ui.filters[tab];
+  if (!cfg || !f) return state[tab].map((_, i) => i);
+  const q = (f.search || '').trim().toLowerCase();
+  const out = [];
+  state[tab].forEach((it, idx) => {
+    if (q) {
+      const blob = cfg.searchKeys.map(k => String(it[k] || '')).join(' ').toLowerCase();
+      if (!blob.includes(q)) return;
+    }
+    const dt = it.venc || '';
+    if (f.dateFrom && dt < f.dateFrom) return;
+    if (f.dateTo   && dt > f.dateTo)   return;
+    if (f.status === 'pending' && it.pagadoAt) return;
+    if (f.status === 'done'    && !it.pagadoAt) return;
+    out.push(idx);
+  });
+  return out;
+}
+
+function renderGenericFilterBar(tab, totalAll, totalShown, totalSum) {
+  const cfg = FILTER_CONFIGS[tab];
+  const f = state.ui.filters[tab];
+  const selCount = state.ui.selected[tab].size;
+  const bulkBtn = selCount > 0
+    ? `<button class="danger" id="fbar-${tab}-bulk">Borrar ${selCount} seleccionado(s)</button>`
+    : '';
+  return `
+    <div class="mn-filterbar">
+      <div>
+        <label>Búsqueda libre</label>
+        <input type="text" id="fbar-${tab}-search" value="${escapeHtml(f.search || '')}" placeholder="${cfg.searchPlaceholder}" />
+      </div>
+      <div>
+        <label>Vencimiento desde</label>
+        <input type="date" id="fbar-${tab}-from" value="${f.dateFrom || ''}" />
+      </div>
+      <div>
+        <label>Hasta</label>
+        <input type="date" id="fbar-${tab}-to" value="${f.dateTo || ''}" />
+      </div>
+      <div>
+        <label>Estado</label>
+        <select id="fbar-${tab}-status">
+          <option value=""${f.status === '' ? ' selected' : ''}>— Todos —</option>
+          <option value="pending"${f.status === 'pending' ? ' selected' : ''}>${cfg.pendingLabel}</option>
+          <option value="done"${f.status === 'done' ? ' selected' : ''}>${cfg.doneLabel}</option>
+        </select>
+      </div>
+      <div class="mn-filter-actions">
+        <div class="mn-filter-info">
+          Mostrando <b>${totalShown}</b> de <b>${totalAll}</b> · Total filtrado: <b>${fmt(totalSum)}</b>
+        </div>
+        <div class="mn-bulk-actions">
+          ${bulkBtn}
+          <button class="ghost" id="fbar-${tab}-reset">Limpiar filtros</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function wireGenericFilterBar(tab) {
+  const cfg = FILTER_CONFIGS[tab];
+  if (!cfg) return;
+  const debounced = (() => { let t; return () => { clearTimeout(t); t = setTimeout(renderTab, 180); }; })();
+  const bind = (id, prop, evt = 'input') => {
+    const el = $(id); if (!el) return;
+    el.addEventListener(evt, e => {
+      state.ui.filters[tab][prop] = e.target.value;
+      evt === 'input' ? debounced() : renderTab();
+    });
+  };
+  bind(`fbar-${tab}-search`, 'search', 'input');
+  bind(`fbar-${tab}-from`,   'dateFrom', 'change');
+  bind(`fbar-${tab}-to`,     'dateTo',   'change');
+  bind(`fbar-${tab}-status`, 'status',   'change');
+
+  const reset = $(`fbar-${tab}-reset`);
+  if (reset) reset.addEventListener('click', () => {
+    state.ui.filters[tab] = { search: '', dateFrom: '', dateTo: '', status: '' };
+    state.ui.selected[tab].clear();
+    renderTab();
+  });
+
+  document.querySelectorAll(`input.row-sel-${tab}`).forEach(cb => {
+    cb.addEventListener('change', e => {
+      const id = e.target.dataset.id;
+      if (e.target.checked) state.ui.selected[tab].add(id);
+      else state.ui.selected[tab].delete(id);
+      renderTab();
+    });
+  });
+  const selAll = $(`selAll-${tab}`);
+  if (selAll) selAll.addEventListener('change', e => {
+    const visible = getFilteredIndices(tab);
+    if (e.target.checked) visible.forEach(i => state.ui.selected[tab].add(state[tab][i].id));
+    else                  visible.forEach(i => state.ui.selected[tab].delete(state[tab][i].id));
+    renderTab();
+  });
+
+  const bulk = $(`fbar-${tab}-bulk`);
+  if (bulk) bulk.addEventListener('click', async () => {
+    const ids = [...state.ui.selected[tab]];
+    if (!ids.length) return;
+    if (!confirm(`¿Borrar ${ids.length} ${cfg.bulkLabel}? Esta acción no se puede deshacer.`)) return;
+    bulk.disabled = true;
+    bulk.textContent = 'Borrando...';
+    try {
+      const table = mappers[tab].table;
+      const { error } = await sb.from(table).delete().in('id', ids);
+      if (error) throw error;
+      state[tab] = state[tab].filter(it => !state.ui.selected[tab].has(it.id));
+      state.ui.selected[tab].clear();
+      renderTab();
+      recompute();
+    } catch (e) {
+      console.error('bulk delete error', e);
+      alert('Error al borrar: ' + (e.message || e.code || 'desconocido'));
+      bulk.disabled = false;
+      bulk.textContent = `Borrar ${ids.length} seleccionado(s)`;
+    }
+  });
+}
+
 function wireMnFilterBar() {
   const f = state.ui.mnFilters;
   const debouncedRender = (() => {
@@ -3298,6 +3466,44 @@ function renderTab() {
       `;
     }
     wireMnFilterBar();
+  } else if (FILTER_CONFIGS[tab]) {
+    const visibleIdx = getFilteredIndices(tab);
+    const visibleData = visibleIdx.map(i => state[tab][i]);
+    const sum = visibleData.reduce((s, it) => s + Number(it.importe || 0), 0);
+    const filterBar = renderGenericFilterBar(tab, state[tab].length, visibleIdx.length, sum);
+
+    const visibleIds = new Set(visibleData.map(it => it.id));
+    [...state.ui.selected[tab]].forEach(id => { if (!visibleIds.has(id)) state.ui.selected[tab].delete(id); });
+
+    if (!data.length) {
+      root.innerHTML = `${toolbar}${filterBar}<div class="empty">Sin registros para mostrar.</div>${addBtn}`;
+    } else if (!visibleData.length) {
+      root.innerHTML = `${toolbar}${filterBar}<div class="empty">Ningún registro coincide con los filtros.</div>${addBtn}`;
+    } else {
+      const allSel = visibleData.every(it => state.ui.selected[tab].has(it.id));
+      const head = `<th class="sel-col"><input type="checkbox" id="selAll-${tab}"${allSel ? ' checked' : ''} /></th>`
+                 + cfg.cols.map(c => `<th>${c}</th>`).join('');
+      const body = visibleIdx.map(origIdx => {
+        const it = state[tab][origIdx];
+        const checked = state.ui.selected[tab].has(it.id) ? ' checked' : '';
+        const trCls = it.pagadoAt ? ' class="paid-row"' : '';
+        return `<tr${trCls}>
+          <td class="sel-col"><input type="checkbox" class="row-sel-${tab}" data-id="${it.id}"${checked} /></td>
+          ${cfg.rowHTML(it, origIdx)}
+        </tr>`;
+      }).join('');
+      root.innerHTML = `
+        ${toolbar}${filterBar}
+        <div class="table-wrap">
+          <table>
+            <thead><tr>${head}</tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+        ${addBtn}
+      `;
+    }
+    wireGenericFilterBar(tab);
   } else if (!data.length) {
     root.innerHTML = `
       ${toolbar}
