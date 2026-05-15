@@ -2844,6 +2844,26 @@ async function initAuth() {
    DB OPS
    ===================================================================== */
 
+/* Bancos por defecto para nuevos usuarios. Si la tabla cuentas_bancarias
+   está vacía al loguearse, se insertan automáticamente con saldo 0. El sync
+   con Xubio ya NO crea cuentas bancarias, así que esta es la única vía de
+   pre-poblado. El usuario puede modificar saldos y/o agregar más cuentas. */
+const DEFAULT_BANKS = [
+  { label: 'Fima',      tipo: 'otro',     banco: null,         saldo: 0, orden: 1 },
+  { label: 'Galicia',   tipo: 'banco_cc', banco: 'Galicia',    saldo: 0, orden: 2 },
+  { label: 'Nación',    tipo: 'banco_cc', banco: 'Nación',     saldo: 0, orden: 3 },
+  { label: 'Provincia', tipo: 'banco_cc', banco: 'Provincia',  saldo: 0, orden: 4 },
+];
+
+async function seedDefaultBanksIfEmpty() {
+  if (state.balances.length) return false;
+  const payload = DEFAULT_BANKS.map(b => ({ ...b, user_id: currentUser.id, moneda: 'ARS', activo: true }));
+  const { data, error } = await sb.from('cuentas_bancarias').insert(payload).select();
+  if (error) { console.error('seed default banks', error); return false; }
+  state.balances = (data || []).map(mappers.balances.fromDb);
+  return true;
+}
+
 async function loadAllFromDb() {
   const [bal, ar, cr, ap, ce, mn] = await Promise.all([
     sb.from('cuentas_bancarias').select('*').order('orden').order('created_at'),
@@ -2862,6 +2882,8 @@ async function loadAllFromDb() {
   state.ap = (ap.data || []).map(mappers.ap.fromDb);
   state.ce = (ce.data || []).map(mappers.ce.fromDb);
   state.mn = (mn.data || []).map(mappers.mn.fromDb);
+
+  await seedDefaultBanksIfEmpty();
 
   renderBalances();
   renderTab();
